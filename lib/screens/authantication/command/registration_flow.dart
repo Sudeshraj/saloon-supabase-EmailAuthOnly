@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/screens/authantication/models/user.dart';
 import 'package:flutter_application_1/screens/authantication/command/email_screen.dart';
 import 'package:flutter_application_1/screens/authantication/business_reg/company_name_screen.dart';
 import 'package:flutter_application_1/screens/authantication/customer_reg/name_screen.dart';
 import 'package:flutter_application_1/screens/authantication/command/finish_screen.dart';
 import 'package:flutter_application_1/screens/authantication/command/password_screen.dart';
 import 'package:flutter_application_1/screens/authantication/command/welcome.dart';
-// import 'package:flutter_application_1/services/user_service.dart';
 import 'package:flutter_application_1/screens/authantication/services/registration_service.dart';
+import 'package:flutter_application_1/screens/commands/alertBox/show_custom_alert.dart';
+import 'package:flutter_application_1/screens/authantication/functions/loading_overlay.dart';
 
 class RegistrationFlow extends StatefulWidget {
   const RegistrationFlow({super.key});
@@ -19,18 +19,19 @@ class RegistrationFlow extends StatefulWidget {
 class _RegistrationFlowState extends State<RegistrationFlow> {
   final PageController _controller = PageController();
 
-  // ---- UPDATED ROLE SYSTEM ----
+  // ---- ROLE SYSTEM ----
   List<String> roles = [];
 
-  // ---- Common fields ----
+  // ---- COMMON FIELDS ----
   String? firstName;
   String? lastName;
   String? email;
   String? password;
 
-
-  // ---- Business fields ----
+  // ---- BUSINESS FIELD ----
   String? companyName;
+
+  final SaveUser _saveUserService = SaveUser();
 
   @override
   Widget build(BuildContext context) {
@@ -39,27 +40,35 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
         controller: _controller,
         physics: const NeverScrollableScrollPhysics(),
         children: [
-          // 👉 SELECT ROLE (customer / business)
+          // ===============================================================
+          // STEP 1: SELECT ROLE
+          // ===============================================================
           WelcomeScreen(
-            onNext: (type) {
+            onNext: (selectedRole) {
               setState(() {
-                roles = [type]; // ADD FIRST ROLE INTO LIST
+                roles = [selectedRole];
               });
               _nextPage();
             },
           ),
 
-          // 👉 CUSTOMER REGISTRATION FLOW
+          // ===============================================================
+          // CUSTOMER FLOW
+          // ===============================================================
           if (roles.contains('customer')) ..._buildCustomerFlow(),
 
-          // 👉 BUSINESS REGISTRATION FLOW
+          // ===============================================================
+          // BUSINESS FLOW
+          // ===============================================================
           if (roles.contains('business')) ..._buildBusinessFlow(),
         ],
       ),
     );
   }
 
-  // ------------------- CUSTOMER FLOW -------------------
+  // -----------------------------------------------------------------------
+  // CUSTOMER FLOW
+  // -----------------------------------------------------------------------
   List<Widget> _buildCustomerFlow() => [
         NameEntry(
           onNext: (f, l) {
@@ -70,7 +79,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             _nextPage();
           },
           controller: _controller,
-        ),      
+        ),
         EmailScreen(
           onNext: (e) {
             setState(() => email = e);
@@ -85,29 +94,15 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
           },
           controller: _controller,
         ),
-
-        // ---------------- FINISH CUSTOMER SIGN UP ----------------
         FinishScreen(
           controller: _controller,
-          onSignUp: () async {
-            if (email == null || password == null) {
-              throw Exception("Please complete all fields before signing up.");
-            }
-
-            final customerAuth = CustomerAuth(
-              roles: roles,        // <-- UPDATED
-              firstName: firstName!,
-              lastName: lastName!,            
-              email: email!,
-              password: password!,
-            );
-
-            await SaveUser().saveUser(customerAuth, context);
-          },
+          onSignUp: () async => _handleRegistration(),
         ),
       ];
 
-  // ------------------- BUSINESS FLOW -------------------
+  // -----------------------------------------------------------------------
+  // BUSINESS FLOW
+  // -----------------------------------------------------------------------
   List<Widget> _buildBusinessFlow() => [
         CompanyNameScreen(
           onNext: (n) {
@@ -115,7 +110,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
             _nextPage();
           },
           controller: _controller,
-        ),      
+        ),
         EmailScreen(
           onNext: (e) {
             setState(() => email = e);
@@ -130,27 +125,62 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
           },
           controller: _controller,
         ),
-
-        // ---------------- FINISH BUSINESS SIGN UP ----------------
         FinishScreen(
           controller: _controller,
-          onSignUp: () async {
-            if (email == null || password == null ) {
-              throw Exception("Please complete all fields before signing up.");
-            }
-
-            final companyAuth = CompanyAuth(
-              roles: roles,            // <-- UPDATED
-              companyName: companyName!,             
-              email: email!,             
-              password: password!,
-            );
-
-            await SaveUser().saveCompany(companyAuth, context);
-          },
+          onSignUp: () async => _handleRegistration(),
         ),
       ];
 
+  // -----------------------------------------------------------------------
+  // HANDLER — CALLED FOR BOTH ROLES
+  // -----------------------------------------------------------------------
+  Future<void> _handleRegistration() async {
+    if (email == null || password == null || roles.isEmpty) {
+      await showCustomAlert(
+        context,
+        title: "Incomplete Info",
+        message: "Please complete all fields before signing up.",
+        isError: true,
+      );
+      return;
+    }
+
+    try {
+      LoadingOverlay.show(context, message: "Creating your account...");
+
+      if (roles.contains('customer')) {
+        // ✅ CUSTOMER REGISTRATION
+        await _saveUserService.registerUserWithRole(
+          context,
+          role: 'customer',
+          email: email!,
+          password: password!,
+          displayName: "${firstName ?? ''} ${lastName ?? ''}".trim(),
+        );
+      } else if (roles.contains('business')) {
+        // ✅ BUSINESS REGISTRATION
+        await _saveUserService.registerUserWithRole(
+          context,
+          role: 'business',
+          email: email!,
+          password: password!,
+          displayName: companyName ?? "Business User",
+        );
+      }
+      if (!context.mounted) return;
+    } catch (e) {
+      await showCustomAlert(
+        context,
+        title: "Registration Failed",
+        message: e.toString(),
+        isError: true,
+      );
+    } finally {
+      LoadingOverlay.hide();
+    }
+  }
+
+  // -----------------------------------------------------------------------
   void _nextPage() => _controller.nextPage(
         duration: const Duration(milliseconds: 300),
         curve: Curves.ease,

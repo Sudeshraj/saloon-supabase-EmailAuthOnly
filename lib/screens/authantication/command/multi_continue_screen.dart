@@ -1,10 +1,7 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_application_1/main.dart';
 import 'package:flutter_application_1/screens/authantication/command/email_verify_checker.dart';
 import 'package:flutter_application_1/screens/authantication/command/not_you.dart';
-import 'package:flutter_application_1/screens/commands/functions/get_firestore_profile.dart';
 import 'package:flutter_application_1/screens/commands/alertBox/show_custom_alert.dart';
 import '../services/session_manager.dart';
 import '../../home/customer_home.dart';
@@ -12,6 +9,9 @@ import '../../home/owner_dashboard.dart';
 import '../../home/employee_dashboard.dart';
 import 'sign_in.dart';
 import 'registration_flow.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+final supabase = Supabase.instance.client;
 
 class ContinueScreen extends StatefulWidget {
   const ContinueScreen({super.key});
@@ -31,61 +31,51 @@ class _ContinueScreenState extends State<ContinueScreen> {
   }
 
   Future<void> _loadProfiles() async {
-    final list =
-        await SessionManager.getProfiles(); // Already expanded role-by-role
+    final list = await SessionManager.getProfiles();
     setState(() => profiles = list);
   }
 
-  // -------------------------------------------------------------
-  // LOGIN + EMAIL VERIFY + REDIRECT BY ROLE
-  // -------------------------------------------------------------
+  // -----------------------------------------------------------------
+  // LOGIN + EMAIL VERIFY + REDIRECT BY ROLE (SUPABASE VERSION)
+  // -----------------------------------------------------------------
   Future<void> _handleProfileSelection(Map<String, dynamic> profile) async {
     if (_loading) return;
-
     setState(() => _loading = true);
 
-    User? user = FirebaseAuth.instance.currentUser;
+    // Get current Supabase user
+    User? user = supabase.auth.currentUser;
 
-    // Auto-login with saved credentials if needed
-    if (user == null && profile['password'] != null) {
-      try {
-        final decodedPass = utf8.decode(base64Decode(profile['password']));
-        final credential = await FirebaseAuth.instance
-            .signInWithEmailAndPassword(
-              email: profile['email'],
-              password: decodedPass,
-            );
+    // 🔹 If user is not logged in, try to auto-login with stored credentials
+    if (user == null) {
+      final savedPass = await SessionManager.getPassword(
+        profile['email'],
+        profile['role'],
+      );
 
-        user = credential.user;
-      } catch (e) {
-        if (!mounted) return;
-
-        setState(() => _loading = false);
-        // ScaffoldMessenger.of(context).showSnackBar(
-        //   const SnackBar(
-        //     content: Text("Login failed. Please log in again."),
-        //     backgroundColor: Colors.redAccent,
-        //   ),
-        // );
-        await showCustomAlert(
-          context,
-          title: "Error ❌",
-          message: "Login failed. Please log in again",
-          isError: true,
-          onOk: () async {
-            await FirebaseAuth.instance.signOut();
-          },
-          onClose: () async {
-            await FirebaseAuth.instance.signOut();
-          },
-        );
-
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const SignInScreen()),
-        );
-        return;
+      if (savedPass != null) {
+        try {
+          final res = await supabase.auth.signInWithPassword(
+            email: profile['email'],
+            password: savedPass,
+          );
+          user = res.user;
+        } catch (e) {
+          await showCustomAlert(
+            context,
+            title: "Error ❌",
+            message: "Login failed. Please log in again.",
+            isError: true,
+            onOk: () async {
+              await supabase.auth.signOut();
+            },
+          );
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SignInScreen()),
+          );
+          return;
+        }
       }
     }
 
@@ -94,55 +84,21 @@ class _ContinueScreenState extends State<ContinueScreen> {
       return;
     }
 
-    await user.reload();
-    user = FirebaseAuth.instance.currentUser;
+    // Reload user data (Supabase equivalent of Firebase reload)
+    await supabase.auth.refreshSession();
 
     // -------------------------------------------------------------
-    // EMAIL NOT VERIFIED
+    // EMAIL NOT VERIFIED (Supabase check)
     // -------------------------------------------------------------
-    if (!user!.emailVerified) {
+    if (user.emailConfirmedAt == null) {
       if (!mounted) return;
+
       final safeEmail = user.email ?? '';
+      String displayName = profile['name'] ?? "Unknown User";
+      String photoUrl = profile['photo'] ?? '';
+      List<String> roles = [profile['role']];
 
-      String displayName = "Unknown User";
-      String photoUrl = "";
-      List<String> roles = [];
-
-      // 🔽 Start login function
-      try {
-        final result = await getFirestoreProfile(safeEmail);
-
-        if (!mounted) return;
-
-        if (result == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("No user found try again.")),
-          );
-          await FirebaseAuth.instance.signOut();
-          return;
-        }
-
-        if (result.containsKey("error")) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Firestore error: ${result['error']}")),
-          );
-          await FirebaseAuth.instance.signOut();
-          return;
-        }
-
-        // 🔽 Assign INSIDE
-        displayName = result["name"] as String? ?? "Unknown User";
-        photoUrl = result["photo"] as String? ?? "";
-        roles = (result["roles"] as List?)?.cast<String>() ?? [];
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Unexpected error: $e")));
-        await FirebaseAuth.instance.signOut();
-      }
-
-      if (!mounted) return;
+      // Show Not You screen
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
@@ -170,17 +126,13 @@ class _ContinueScreenState extends State<ContinueScreen> {
                 onOk: () async {
                   await SessionManager.deleteRoleProfile(
                     safeEmail,
-                    profile['role'], // ONLY THIS ROLE
+                    profile['role'],
                   );
-
-                  await FirebaseAuth.instance.signOut();
+                  await supabase.auth.signOut();
 
                   nav.pushReplacement(
                     MaterialPageRoute(builder: (_) => const ContinueScreen()),
                   );
-                },
-                onClose: () async {
-                  // await FirebaseAuth.instance.signOut();
                 },
               );
             },
@@ -190,7 +142,6 @@ class _ContinueScreenState extends State<ContinueScreen> {
               final nav = navigatorKey.currentState;
               if (nav == null) return;
 
-              // Navigate to email verify screen
               nav.pushReplacement(
                 MaterialPageRoute(
                   builder: (_) => EmailVerifyChecker(roles: roles),
@@ -200,7 +151,6 @@ class _ContinueScreenState extends State<ContinueScreen> {
           ),
         ),
       );
-
       return;
     }
 
@@ -208,6 +158,8 @@ class _ContinueScreenState extends State<ContinueScreen> {
     // EMAIL VERIFIED → REDIRECT BY ROLE
     // -------------------------------------------------------------
     final String role = profile['role'];
+    await SessionManager.saveUserRole(role);
+
     if (!mounted) return;
     if (role == "customer") {
       Navigator.pushReplacement(
@@ -253,11 +205,12 @@ class _ContinueScreenState extends State<ContinueScreen> {
                 children: [
                   CircleAvatar(
                     radius: 16,
-                    backgroundImage:
-                        (p['photo'] != null && p['photo'].toString().isNotEmpty)
+                    backgroundImage: (p['photo'] != null &&
+                            p['photo'].toString().isNotEmpty)
                         ? NetworkImage(p['photo'])
                         : null,
-                    child: (p['photo'] == null || p['photo'].toString().isEmpty)
+                    child: (p['photo'] == null ||
+                            p['photo'].toString().isEmpty)
                         ? const Icon(Icons.person, color: Colors.white)
                         : null,
                   ),
@@ -277,7 +230,6 @@ class _ContinueScreenState extends State<ContinueScreen> {
                         p['role'],
                       );
                       _loadProfiles();
-
                       if (!mounted) return;
                       Navigator.pop(context);
                     },
@@ -295,7 +247,7 @@ class _ContinueScreenState extends State<ContinueScreen> {
   }
 
   // -------------------------------------------------------------
-  // UI DESIGN (unchanged)
+  // UI DESIGN
   // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
@@ -348,52 +300,33 @@ class _ContinueScreenState extends State<ContinueScreen> {
                                   children: profiles
                                       .map(
                                         (p) => Padding(
-                                          padding: const EdgeInsets.only(
-                                            bottom: 12,
-                                          ),
+                                          padding: const EdgeInsets.only(bottom: 12),
                                           child: GestureDetector(
-                                            onTap: () =>
-                                                _handleProfileSelection(p),
+                                            onTap: () => _handleProfileSelection(p),
                                             child: Card(
-                                              color: Colors.white.withValues(
-                                                alpha: 0.06,
-                                              ),
+                                              color: Colors.white.withValues(alpha: 0.06),
                                               shape: RoundedRectangleBorder(
-                                                borderRadius:
-                                                    BorderRadius.circular(16),
+                                                borderRadius: BorderRadius.circular(16),
                                               ),
                                               elevation: 2,
                                               child: ListTile(
                                                 leading: CircleAvatar(
                                                   radius: 25,
-                                                  backgroundImage:
-                                                      (p['photo'] != null &&
-                                                          p['photo']
-                                                              .toString()
-                                                              .isNotEmpty)
+                                                  backgroundImage: (p['photo'] != null &&
+                                                          p['photo'].toString().isNotEmpty)
                                                       ? NetworkImage(p['photo'])
                                                       : null,
-                                                  child:
-                                                      (p['photo'] == null ||
-                                                          p['photo']
-                                                              .toString()
-                                                              .isEmpty)
-                                                      ? const Icon(
-                                                          Icons.person,
-                                                          color: Colors.white,
-                                                        )
+                                                  child: (p['photo'] == null ||
+                                                          p['photo'].toString().isEmpty)
+                                                      ? const Icon(Icons.person, color: Colors.white)
                                                       : null,
                                                 ),
                                                 title: Text(
                                                   "${p['name']} (${p['role']} profile)",
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 16,
-                                                  ),
+                                                  style: const TextStyle(color: Colors.white, fontSize: 16),
                                                 ),
                                                 trailing: const Icon(
-                                                  Icons
-                                                      .arrow_forward_ios_rounded,
+                                                  Icons.arrow_forward_ios_rounded,
                                                   color: Colors.white38,
                                                   size: 18,
                                                 ),
@@ -415,16 +348,12 @@ class _ContinueScreenState extends State<ContinueScreen> {
                               onPressed: () {
                                 Navigator.pushReplacement(
                                   context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const SignInScreen(),
-                                  ),
+                                  MaterialPageRoute(builder: (_) => const SignInScreen()),
                                 );
                               },
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: Colors.white24),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -442,18 +371,12 @@ class _ContinueScreenState extends State<ContinueScreen> {
                               onPressed: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(
-                                    builder: (_) => const RegistrationFlow(),
-                                  ),
+                                  MaterialPageRoute(builder: (_) => const RegistrationFlow()),
                                 );
                               },
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(
-                                  color: Color(0xFF1877F3),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
+                                side: const BorderSide(color: Color(0xFF1877F3)),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(24),
                                 ),

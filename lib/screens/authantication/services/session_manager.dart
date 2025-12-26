@@ -1,69 +1,72 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
+/// 🧠 SessionManager (Supabase Edition)
+/// Securely manages multiple role-based profiles and encrypted passwords.
 class SessionManager {
   static const _keyProfiles = 'profiles';
+  static const _secure = FlutterSecureStorage(); // Encrypted OS-level storage
 
   /// -------------------------------------------------------
-  /// GET all saved profiles
-  /// Each profile = ONE ROLE
+  /// 🔹 Get all locally saved profiles (without password)
   /// -------------------------------------------------------
   static Future<List<Map<String, dynamic>>> getProfiles() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_keyProfiles);
-    if (raw == null) return [];
+
+    if (raw == null || raw.isEmpty) return [];
 
     try {
       final List<dynamic> decoded = jsonDecode(raw);
-
       return decoded.map<Map<String, dynamic>>((item) {
         return {
           'email': item['email'] ?? '',
           'name': item['name'] ?? '',
-          'password': item['password'] ?? '',
           'photo': item['photo'] ?? '',
           'role': item['role'] ?? '',
         };
       }).toList();
-    } catch (_) {
+    } catch (e) {
+      ("❌ Failed to decode profiles: $e");
       return [];
     }
   }
 
   /// -------------------------------------------------------
-  /// SAVE profile role by role
-  /// If a user has 3 roles → we save 3 profiles
+  /// 🔹 Save a new or updated role profile
+  /// Passwords are stored securely in FlutterSecureStorage.
   /// -------------------------------------------------------
-  static Future<void> saveProfile(
-    String email,
-    String name,
-    String password,
-    List<String> roles, [
+  static Future<void> saveProfile({
+    required String email,
+    required String name,
+    required String password,
+    required List<String> roles,
     String? photo,
-  ]) async {
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     final profiles = await getProfiles();
 
-    final encodedPassword = base64Encode(utf8.encode(password));
-
+    // 🔐 Save password securely (per role)
     for (String role in roles) {
-      // Check if same email + same role exists
+      await _secure.write(key: '${email}_$role', value: password);
+
+      // Replace or add profile
       final index = profiles.indexWhere(
         (p) => p['email'] == email && p['role'] == role,
       );
 
-      final data = {
+      final profileData = {
         'email': email,
         'name': name,
-        'password': encodedPassword,
         'photo': photo ?? '',
-        'role': role, // IMPORTANT: Save as STRING
+        'role': role,
       };
 
       if (index != -1) {
-        profiles[index] = data; // update
+        profiles[index] = profileData;
       } else {
-        profiles.add(data); // new role-profile
+        profiles.add(profileData);
       }
     }
 
@@ -71,13 +74,21 @@ class SessionManager {
   }
 
   /// -------------------------------------------------------
-  /// DELETE ONLY ONE ROLE PROFILE
+  /// 🔹 Retrieve stored password for a specific email + role
+  /// -------------------------------------------------------
+  static Future<String?> getPassword(String email, String role) async {
+    return await _secure.read(key: '${email}_$role');
+  }
+
+  /// -------------------------------------------------------
+  /// 🔹 Delete a single role-profile (and password)
   /// -------------------------------------------------------
   static Future<void> deleteRoleProfile(String email, String role) async {
     final prefs = await SharedPreferences.getInstance();
     final profiles = await getProfiles();
 
     profiles.removeWhere((p) => p['email'] == email && p['role'] == role);
+    await _secure.delete(key: '${email}_$role');
 
     if (profiles.isEmpty) {
       await prefs.remove(_keyProfiles);
@@ -86,28 +97,33 @@ class SessionManager {
     }
   }
 
-  static Future<bool> deleteAllProfilesByEmail(String email) async {
+  /// -------------------------------------------------------
+  /// 🔹 Delete all roles associated with an email
+  /// -------------------------------------------------------
+  static Future<void> deleteAllProfilesByEmail(String email) async {
     final prefs = await SharedPreferences.getInstance();
-    final profiles = prefs.getStringList('profiles') ?? [];
+    final profiles = await getProfiles();
 
-    profiles.removeWhere((p) {
-      final data = jsonDecode(p);
-      return data['email'] == email;
-    });
+    // Delete related secure passwords
+    for (final p in profiles.where((p) => p['email'] == email)) {
+      await _secure.delete(key: '${p['email']}_${p['role']}');
+    }
 
-    return prefs.setStringList('profiles', profiles);
+    profiles.removeWhere((p) => p['email'] == email);
+    await prefs.setString(_keyProfiles, jsonEncode(profiles));
   }
 
   /// -------------------------------------------------------
-  /// Clear all
+  /// 🔹 Completely clear all saved data
   /// -------------------------------------------------------
   static Future<void> clearAll() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_keyProfiles);
+    await _secure.deleteAll();
   }
 
   /// -------------------------------------------------------
-  /// Last logged profile
+  /// 🔹 Get last logged user (for quick resume)
   /// -------------------------------------------------------
   static Future<Map<String, dynamic>?> getLastUser() async {
     final profiles = await getProfiles();
@@ -116,7 +132,7 @@ class SessionManager {
   }
 
   /// -------------------------------------------------------
-  /// Save selected role (for login session)
+  /// 🔹 Save or get current role in use (runtime session)
   /// -------------------------------------------------------
   static Future<void> saveUserRole(String role) async {
     final prefs = await SharedPreferences.getInstance();
@@ -129,14 +145,16 @@ class SessionManager {
   }
 
   /// -------------------------------------------------------
-  /// Check if at least one saved profile exists
+  /// 🔹 Check if any profile exists (used for ContinueScreen)
   /// -------------------------------------------------------
   static Future<bool> hasProfile() async {
     final profiles = await getProfiles();
     return profiles.isNotEmpty;
   }
 
-  /// ✅ Shared prefs helper
+  /// -------------------------------------------------------
+  /// 🔹 SharedPreferences helper (for custom use)
+  /// -------------------------------------------------------
   static Future<SharedPreferences> getPrefs() async {
     return await SharedPreferences.getInstance();
   }
