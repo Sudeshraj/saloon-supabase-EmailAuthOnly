@@ -10,6 +10,8 @@ import '../../home/employee_dashboard.dart';
 import 'sign_in.dart';
 import 'registration_flow.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:go_router/go_router.dart';
+
 
 final supabase = Supabase.instance.client;
 
@@ -69,12 +71,9 @@ class _ContinueScreenState extends State<ContinueScreen> {
               await supabase.auth.signOut();
             },
           );
-          if (!mounted) return;
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const SignInScreen()),
-          );
-          return;
+        //   if (!mounted) return;
+        //  context.go('/continue');
+        //   return;
         }
       }
     }
@@ -144,7 +143,7 @@ class _ContinueScreenState extends State<ContinueScreen> {
 
               nav.pushReplacement(
                 MaterialPageRoute(
-                  builder: (_) => EmailVerifyChecker(roles: roles),
+                  builder: (_) => EmailVerifyChecker(),
                 ),
               );
             },

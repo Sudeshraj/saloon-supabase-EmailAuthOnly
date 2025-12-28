@@ -181,7 +181,7 @@ class _SignInScreenState extends State<SignInScreen>
                 if (nav == null) return;
                 nav.pushReplacement(
                   MaterialPageRoute(
-                    builder: (_) => EmailVerifyChecker(roles: roles),
+                    builder: (_) => EmailVerifyChecker(),
                   ),
                 );
               },

@@ -31,6 +31,13 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
+
+                <!--Deeflink-->
+                 <action android:name="android.intent.action.VIEW" />
+                 <category android:name="android.intent.category.DEFAULT" />
+                 <category android:name="android.intent.category.BROWSABLE" />
+                 <data android:scheme="myapp" android:host="auth" />
+                 
             </intent-filter>
 
             <meta-data android:name="com.google.android.geo.API_KEY" android:value="AIzaSyAneT1e71a84MIL76EgSHjJ1LG3TIU9yMI"/> <!-- for map -->

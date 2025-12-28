@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/screens/authantication/functions/delete_user.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -44,6 +45,9 @@ class SaveUser {
       email: email,
       password: password,
       data: {'name': displayName},
+      emailRedirectTo: kIsWeb
+      ? 'https://myapp.com/auth'
+      : 'myapp://auth',
     );
 
     if (res.user == null) {
@@ -64,7 +68,9 @@ class SaveUser {
   }) async {
     final session = supabase.auth.currentSession;
     if (session == null) {
-      throw Exception("No active Supabase session found — please sign in first.");
+      throw Exception(
+        "No active Supabase session found — please sign in first.",
+      );
     }
 
     final roleRes = await supabase
@@ -89,83 +95,75 @@ class SaveUser {
   // =========================================================================================
   // REGISTER NEW USER WITH ROLE (FULL FIXED FLOW)
   // =========================================================================================
-Future<void> registerUserWithRole(
-  BuildContext context, {
-  required String role,
-  required String email,
-  required String password,
-  required String displayName,
-  Map<String, dynamic>? extraData,
-}) async {
-  LoadingOverlay.show(context, message: "Creating your $role account...");
+  Future<void> registerUserWithRole(
+    BuildContext context, {
+    required String role,
+    required String email,
+    required String password,
+    required String displayName,
+    Map<String, dynamic>? extraData,
+  }) async {
+    LoadingOverlay.show(context, message: "Creating your $role account...");
 
-  try {
-    // Step 1 — Register Supabase user
-    final res = await registerAccount(
-      email: email,
-      password: password,
-      displayName: displayName,
-    );
-
-    final supaUser = res.user!;
-
-    // Step 2 — Try to sign in again (to activate JWT for RLS)
     try {
-      await supabase.auth.signInWithPassword(
+      // Step 1 — Register Supabase Auth user
+      final res = await registerAccount(
         email: email,
         password: password,
+        displayName: displayName,
+      );
+
+      final user = res.user;
+      if (user == null) {
+        throw Exception("User creation failed");
+      }
+
+      // Step 2 — Create profile via SECURITY DEFINER function (RLS SAFE)
+      await supabase.rpc(
+        'create_user_profile',
+        params: {
+          'p_user_id': user.id,
+          'p_role_name': role, // 👈 role name only
+          'p_display_name': displayName,
+          'p_extra': extraData ?? {},
+        },
+      );
+
+      // Step 3 — Save locally (optional)
+      await SessionManager.saveProfile(
+        email: email,
+        name: displayName,
+        password: password,
+        roles: [role],
+        photo: null,
+      );
+
+      LoadingOverlay.hide();
+
+      // Step 4 — Always go to email verification checker
+      if (!context.mounted) return;
+
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
+      nav.pushReplacement(
+        MaterialPageRoute(builder: (_) => EmailVerifyChecker()),
       );
     } catch (e) {
-      // ⚠️ If email not confirmed yet, ignore this error
-      if (!e.toString().contains("email_not_confirmed")) {
-        rethrow;
+      LoadingOverlay.hide();
+      if (!context.mounted) return;
+
+      if (e.toString().contains("User already registered")) {
+        return handleEmailAlreadyInUse(context, email, password);
       }
+
+      await showCustomAlert(
+        context,
+        title: "Registration Failed",
+        message: e.toString(),
+        isError: true,
+      );
     }
-
-    // Step 3 — Create profile (RLS works only with active session)
-    await createProfile(
-      userId: supaUser.id,
-      roleName: role,
-      displayName: displayName,
-      extraData: extraData,
-    );
-
-    // Step 4 — Save locally (for auto-login & continue flow)
-    await SessionManager.saveProfile(
-      email: email,
-      name: displayName,
-      password: password,
-      roles: [role],
-      photo: null,
-    );
-
-    LoadingOverlay.hide();
-
-    // Step 5 — Move to email verify screen (always show it after registration)
-    if (!context.mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => EmailVerifyChecker(roles: [role]),
-      ),
-    );
-  } catch (e) {
-    LoadingOverlay.hide();
-    if (!context.mounted) return;
-
-    if (e.toString().contains("User already registered")) {
-      return handleEmailAlreadyInUse(context, email, password);
-    }
-
-    await showCustomAlert(
-      context,
-      title: "Error",
-      message: e.toString(),
-      isError: true,
-    );
   }
-}
-
 
   // =========================================================================================
   // ADDITIONAL PROFILE FOR EXISTING USER
@@ -220,7 +218,7 @@ Future<void> registerUserWithRole(
       if (!context.mounted) return;
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (_) => EmailVerifyChecker(roles: [role])),
+        MaterialPageRoute(builder: (_) => EmailVerifyChecker()),
       );
     } catch (e) {
       LoadingOverlay.hide();
@@ -255,8 +253,9 @@ Future<void> registerUserWithRole(
           .select('roles(name)')
           .eq('user_id', user.id);
 
-      final roles =
-          profiles.map<String>((e) => e['roles']['name'].toString()).toList();
+      final roles = profiles
+          .map<String>((e) => e['roles']['name'].toString())
+          .toList();
 
       if (!context.mounted) return;
 
@@ -370,9 +369,7 @@ Future<void> registerUserWithRole(
             final nav = navigatorKey.currentState;
             if (nav == null) return;
             nav.pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => EmailVerifyChecker(roles: roles),
-              ),
+              MaterialPageRoute(builder: (_) => EmailVerifyChecker()),
             );
           },
         ),
