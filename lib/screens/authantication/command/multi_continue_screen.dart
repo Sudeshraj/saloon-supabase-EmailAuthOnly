@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/main.dart';
-import 'package:flutter_application_1/screens/authantication/command/email_verify_checker.dart';
 import 'package:flutter_application_1/screens/authantication/command/not_you.dart';
+import 'package:flutter_application_1/screens/commands/alertBox/notyou.dart';
 import 'package:flutter_application_1/screens/commands/alertBox/show_custom_alert.dart';
 import '../services/session_manager.dart';
-import '../../home/customer_home.dart';
-import '../../home/owner_dashboard.dart';
-import '../../home/employee_dashboard.dart';
-import 'sign_in.dart';
+
 import 'registration_flow.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
-
 
 final supabase = Supabase.instance.client;
 
@@ -37,23 +33,18 @@ class _ContinueScreenState extends State<ContinueScreen> {
     setState(() => profiles = list);
   }
 
-  // -----------------------------------------------------------------
-  // LOGIN + EMAIL VERIFY + REDIRECT BY ROLE (SUPABASE VERSION)
-  // -----------------------------------------------------------------
   Future<void> _handleProfileSelection(Map<String, dynamic> profile) async {
     if (_loading) return;
     setState(() => _loading = true);
 
-    // Get current Supabase user
     User? user = supabase.auth.currentUser;
+    bool isUnverifiedEmail = false; // 👈 add this flag
 
-    // 🔹 If user is not logged in, try to auto-login with stored credentials
     if (user == null) {
       final savedPass = await SessionManager.getPassword(
         profile['email'],
         profile['role'],
       );
-
       if (savedPass != null) {
         try {
           final res = await supabase.auth.signInWithPassword(
@@ -61,19 +52,89 @@ class _ContinueScreenState extends State<ContinueScreen> {
             password: savedPass,
           );
           user = res.user;
+        } on AuthException catch (e) {
+          final msg = e.message.toLowerCase();
+
+          if (msg.contains("email not confirmed")) {
+            if (!mounted) return;
+
+            setState(() => _loading = false);
+
+            await showNotYouDialog(
+              context: context,
+              email: profile['email'],
+              name: profile['name'] ?? 'Unknown User',
+              photoUrl: profile['photo'] ?? '',
+              roles: [profile['role']],
+              buttonText: 'Not You?',
+
+              // 🔵 Continue button
+              onContinue: () async {
+                print('a');
+                Navigator.pop(context); // close dialog
+                context.go('/verify-email');
+              },
+
+              // 🔴 Not You button
+              onNotYou: () async {
+                // await supabase.auth.signOut();
+                // if (context.mounted) {
+                //   Navigator.pop(context); // close dialog
+                //   context.go('/sign-in');
+                // }
+
+                final nav = navigatorKey.currentState;
+                if (nav == null) return;
+
+                final dialogCtx = nav.overlay!.context;
+
+                await showCustomAlert(
+                  dialogCtx,
+                  title: "Remove Profile?",
+                  message:
+                      "This role profile will be removed from this device.",
+                  isError: true,
+                  buttonText: "Delete",
+                  onOk: () async {
+                    await SessionManager.deleteRoleProfile(
+                      user?.email ?? '',
+                      profile['role'],
+                    );
+                    await supabase.auth.signOut();
+                  },
+                );
+              },
+            );
+
+            return;
+          } else if (msg.contains("invalid login credentials")) {
+            await showCustomAlert(
+              context,
+              title: "Login Failed",
+              message: "Your email or password is incorrect.",
+              isError: true,
+            );
+            setState(() => _loading = false);
+            return;
+          } else {
+            await showCustomAlert(
+              context,
+              title: "Auth Error",
+              message: e.message,
+              isError: true,
+            );
+            setState(() => _loading = false);
+            return;
+          }
         } catch (e) {
           await showCustomAlert(
             context,
-            title: "Error ❌",
-            message: "Login failed. Please log in again.",
+            title: "Server Error",
+            message: "Please try again later.",
             isError: true,
-            onOk: () async {
-              await supabase.auth.signOut();
-            },
           );
-        //   if (!mounted) return;
-        //  context.go('/continue');
-        //   return;
+          setState(() => _loading = false);
+          return;
         }
       }
     }
@@ -83,33 +144,23 @@ class _ContinueScreenState extends State<ContinueScreen> {
       return;
     }
 
-    // Reload user data (Supabase equivalent of Firebase reload)
     await supabase.auth.refreshSession();
 
     // -------------------------------------------------------------
-    // EMAIL NOT VERIFIED (Supabase check)
+    // EMAIL NOT VERIFIED (edge case)
     // -------------------------------------------------------------
-    if (user.emailConfirmedAt == null) {
+    if (isUnverifiedEmail || user.emailConfirmedAt == null) {
       if (!mounted) return;
-
-      final safeEmail = user.email ?? '';
-      String displayName = profile['name'] ?? "Unknown User";
-      String photoUrl = profile['photo'] ?? '';
-      List<String> roles = [profile['role']];
-
-      // Show Not You screen
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder: (_) => NotYouScreen(
-            email: safeEmail,
-            name: displayName,
-            photoUrl: photoUrl,
-            roles: roles,
+            email: user?.email ?? '',
+            name: profile['name'] ?? "Unknown User",
+            photoUrl: profile['photo'] ?? '',
+            roles: [profile['role']],
             buttonText: "Not You?",
             page: 'cont',
-
-            // ================== NOT YOU ==================
             onNotYou: () async {
               final nav = navigatorKey.currentState;
               if (nav == null) return;
@@ -124,32 +175,23 @@ class _ContinueScreenState extends State<ContinueScreen> {
                 buttonText: "Delete",
                 onOk: () async {
                   await SessionManager.deleteRoleProfile(
-                    safeEmail,
+                    user?.email ?? '',
                     profile['role'],
                   );
                   await supabase.auth.signOut();
-
                   nav.pushReplacement(
                     MaterialPageRoute(builder: (_) => const ContinueScreen()),
                   );
                 },
               );
             },
-
-            // ================== CONTINUE ==================
             onContinue: () async {
-              final nav = navigatorKey.currentState;
-              if (nav == null) return;
-
-              nav.pushReplacement(
-                MaterialPageRoute(
-                  builder: (_) => EmailVerifyChecker(),
-                ),
-              );
+              context.go('/verify-email');
             },
           ),
         ),
       );
+      setState(() => _loading = false);
       return;
     }
 
@@ -158,31 +200,28 @@ class _ContinueScreenState extends State<ContinueScreen> {
     // -------------------------------------------------------------
     final String role = profile['role'];
     await SessionManager.saveUserRole(role);
+    await Future.delayed(const Duration(milliseconds: 100));
 
     if (!mounted) return;
-    if (role == "customer") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const CustomerHome()),
-      );
-    } else if (role == "business") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const OwnerDashboard()),
-      );
-    } else if (role == "employee") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const EmployeeDashboard()),
-      );
+
+    switch (role) {
+      case "customer":
+        context.go('/customer');
+        break;
+      case "business":
+        context.go('/owner');
+        break;
+      case "employee":
+        context.go('/employee');
+        break;
+      default:
+        context.go('/customer');
     }
 
     setState(() => _loading = false);
   }
 
-  // -------------------------------------------------------------
-  // POPUP MENU FOR DELETE (ROLE-BY-ROLE)
-  // -------------------------------------------------------------
+  // popup delete
   void _showProfilesMenu(Offset position) async {
     if (profiles.isEmpty) return;
 
@@ -204,12 +243,11 @@ class _ContinueScreenState extends State<ContinueScreen> {
                 children: [
                   CircleAvatar(
                     radius: 16,
-                    backgroundImage: (p['photo'] != null &&
-                            p['photo'].toString().isNotEmpty)
+                    backgroundImage:
+                        (p['photo'] != null && p['photo'].toString().isNotEmpty)
                         ? NetworkImage(p['photo'])
                         : null,
-                    child: (p['photo'] == null ||
-                            p['photo'].toString().isEmpty)
+                    child: (p['photo'] == null || p['photo'].toString().isEmpty)
                         ? const Icon(Icons.person, color: Colors.white)
                         : null,
                   ),
@@ -245,9 +283,6 @@ class _ContinueScreenState extends State<ContinueScreen> {
     }
   }
 
-  // -------------------------------------------------------------
-  // UI DESIGN
-  // -------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final Size screenSize = MediaQuery.of(context).size;
@@ -284,7 +319,6 @@ class _ContinueScreenState extends State<ContinueScreen> {
                         ),
                       ),
                     ),
-
                   Column(
                     children: [
                       Expanded(
@@ -299,33 +333,52 @@ class _ContinueScreenState extends State<ContinueScreen> {
                                   children: profiles
                                       .map(
                                         (p) => Padding(
-                                          padding: const EdgeInsets.only(bottom: 12),
+                                          padding: const EdgeInsets.only(
+                                            bottom: 12,
+                                          ),
                                           child: GestureDetector(
-                                            onTap: () => _handleProfileSelection(p),
+                                            onTap: () =>
+                                                _handleProfileSelection(p),
                                             child: Card(
-                                              color: Colors.white.withValues(alpha: 0.06),
+                                              color: Colors.white.withValues(
+                                                alpha: 0.06,
+                                              ),
                                               shape: RoundedRectangleBorder(
-                                                borderRadius: BorderRadius.circular(16),
+                                                borderRadius:
+                                                    BorderRadius.circular(16),
                                               ),
                                               elevation: 2,
                                               child: ListTile(
                                                 leading: CircleAvatar(
                                                   radius: 25,
-                                                  backgroundImage: (p['photo'] != null &&
-                                                          p['photo'].toString().isNotEmpty)
+                                                  backgroundImage:
+                                                      (p['photo'] != null &&
+                                                          p['photo']
+                                                              .toString()
+                                                              .isNotEmpty)
                                                       ? NetworkImage(p['photo'])
                                                       : null,
-                                                  child: (p['photo'] == null ||
-                                                          p['photo'].toString().isEmpty)
-                                                      ? const Icon(Icons.person, color: Colors.white)
+                                                  child:
+                                                      (p['photo'] == null ||
+                                                          p['photo']
+                                                              .toString()
+                                                              .isEmpty)
+                                                      ? const Icon(
+                                                          Icons.person,
+                                                          color: Colors.white,
+                                                        )
                                                       : null,
                                                 ),
                                                 title: Text(
                                                   "${p['name']} (${p['role']} profile)",
-                                                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 16,
+                                                  ),
                                                 ),
                                                 trailing: const Icon(
-                                                  Icons.arrow_forward_ios_rounded,
+                                                  Icons
+                                                      .arrow_forward_ios_rounded,
                                                   color: Colors.white38,
                                                   size: 18,
                                                 ),
@@ -338,21 +391,19 @@ class _ContinueScreenState extends State<ContinueScreen> {
                                 ),
                         ),
                       ),
-
                       Column(
                         children: [
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton(
                               onPressed: () {
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(builder: (_) => const SignInScreen()),
-                                );
+                                context.go('/login');
                               },
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: Colors.white24),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
                                 ),
@@ -370,12 +421,18 @@ class _ContinueScreenState extends State<ContinueScreen> {
                               onPressed: () {
                                 Navigator.push(
                                   context,
-                                  MaterialPageRoute(builder: (_) => const RegistrationFlow()),
+                                  MaterialPageRoute(
+                                    builder: (_) => const RegistrationFlow(),
+                                  ),
                                 );
                               },
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Color(0xFF1877F3)),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                side: const BorderSide(
+                                  color: Color(0xFF1877F3),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 14,
+                                ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(24),
                                 ),

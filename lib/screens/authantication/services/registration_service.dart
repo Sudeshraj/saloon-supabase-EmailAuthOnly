@@ -17,15 +17,33 @@ class SaveUser {
   final SupabaseClient supabase = Supabase.instance.client;
 
   // =========================================================================================
-  // SAFE DATABASE WRITE (Retry logic)
+  // RLS-SAFE WRITE using SECURITY DEFINER FUNCTION (RPC)
   // =========================================================================================
-  Future<void> safeWriteProfile(Map<String, dynamic> data) async {
+  Future<void> safeWriteProfile({
+    required String userId,
+    required String roleName,
+    required String displayName,
+    Map<String, dynamic>? extraData,
+  }) async {
     int retries = 0;
     while (retries < 3) {
       try {
-        await supabase.from('profiles').insert(data);
+        await supabase.rpc(
+          'create_user_profile',
+          params: {
+            'p_user_id': userId,
+            'p_role_name': roleName,
+            'p_display_name': displayName,
+            'p_extra': extraData ?? {},
+          },
+        );
         return;
       } catch (e) {
+        // Handle duplicate profile
+        if (e.toString().contains('PROFILE_EXISTS')) {
+          debugPrint('⚠️ Profile already exists for user $userId');
+          return;
+        }
         retries++;
         if (retries == 3) rethrow;
         await Future.delayed(const Duration(seconds: 2));
@@ -34,7 +52,7 @@ class SaveUser {
   }
 
   // =========================================================================================
-  // REGISTER ACCOUNT (auth signup)
+  // REGISTER ACCOUNT (Supabase Auth)
   // =========================================================================================
   Future<AuthResponse> registerAccount({
     required String email,
@@ -46,8 +64,8 @@ class SaveUser {
       password: password,
       data: {'name': displayName},
       emailRedirectTo: kIsWeb
-      ? 'https://myapp.com/auth'
-      : 'myapp://auth',
+          ? 'https://myapp.com/auth'
+          : 'myapp://auth',
     );
 
     if (res.user == null) {
@@ -58,7 +76,7 @@ class SaveUser {
   }
 
   // =========================================================================================
-  // CREATE PROFILE (insert into profiles table)
+  // CREATE PROFILE (call RPC safely)
   // =========================================================================================
   Future<void> createProfile({
     required String userId,
@@ -68,32 +86,19 @@ class SaveUser {
   }) async {
     final session = supabase.auth.currentSession;
     if (session == null) {
-      throw Exception(
-        "No active Supabase session found — please sign in first.",
-      );
+      throw Exception("No active Supabase session found — please sign in first.");
     }
 
-    final roleRes = await supabase
-        .from('roles')
-        .select('id')
-        .eq('name', roleName)
-        .maybeSingle();
-
-    if (roleRes == null) {
-      throw Exception("Role '$roleName' not found in roles table");
-    }
-
-    await safeWriteProfile({
-      'user_id': userId,
-      'role_id': roleRes['id'],
-      'display_name': displayName,
-      'extra_data': extraData ?? {},
-      'is_active': true,
-    });
+    await safeWriteProfile(
+      userId: userId,
+      roleName: roleName,
+      displayName: displayName,
+      extraData: extraData,
+    );
   }
 
   // =========================================================================================
-  // REGISTER NEW USER WITH ROLE (FULL FIXED FLOW)
+  // REGISTER NEW USER WITH ROLE (FULL FLOW)
   // =========================================================================================
   Future<void> registerUserWithRole(
     BuildContext context, {
@@ -106,7 +111,7 @@ class SaveUser {
     LoadingOverlay.show(context, message: "Creating your $role account...");
 
     try {
-      // Step 1 — Register Supabase Auth user
+      // Step 1 — Register Auth user
       final res = await registerAccount(
         email: email,
         password: password,
@@ -118,18 +123,15 @@ class SaveUser {
         throw Exception("User creation failed");
       }
 
-      // Step 2 — Create profile via SECURITY DEFINER function (RLS SAFE)
-      await supabase.rpc(
-        'create_user_profile',
-        params: {
-          'p_user_id': user.id,
-          'p_role_name': role, // 👈 role name only
-          'p_display_name': displayName,
-          'p_extra': extraData ?? {},
-        },
+      // Step 2 — Create profile (RLS safe)
+      await safeWriteProfile(
+        userId: user.id,
+        roleName: role,
+        displayName: displayName,
+        extraData: extraData,
       );
 
-      // Step 3 — Save locally (optional)
+      // Step 3 — Save locally
       await SessionManager.saveProfile(
         email: email,
         name: displayName,
@@ -140,33 +142,31 @@ class SaveUser {
 
       LoadingOverlay.hide();
 
-      // Step 4 — Always go to email verification checker
+      // Step 4 — Go to verification screen
       if (!context.mounted) return;
-
-      final nav = navigatorKey.currentState;
-      if (nav == null) return;
-      nav.pushReplacement(
+      navigatorKey.currentState?.pushReplacement(
         MaterialPageRoute(builder: (_) => EmailVerifyChecker()),
       );
     } catch (e) {
       LoadingOverlay.hide();
       if (!context.mounted) return;
 
-      if (e.toString().contains("User already registered")) {
+      final err = e.toString();
+      if (err.contains("User already registered") || err.contains("duplicate")) {
         return handleEmailAlreadyInUse(context, email, password);
       }
 
       await showCustomAlert(
         context,
         title: "Registration Failed",
-        message: e.toString(),
+        message: err,
         isError: true,
       );
     }
   }
 
   // =========================================================================================
-  // ADDITIONAL PROFILE FOR EXISTING USER
+  // ADD NEW PROFILE FOR EXISTING USER
   // =========================================================================================
   Future<void> addNewProfileForExistingUser(
     BuildContext context, {
@@ -198,7 +198,7 @@ class SaveUser {
         }
       }
 
-      await createProfile(
+      await safeWriteProfile(
         userId: currentUser.id,
         roleName: role,
         displayName: displayName,
@@ -251,7 +251,7 @@ class SaveUser {
       final profiles = await supabase
           .from('profiles')
           .select('roles(name)')
-          .eq('user_id', user.id);
+          .eq('id', user.id);
 
       final roles = profiles
           .map<String>((e) => e['roles']['name'].toString())

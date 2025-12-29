@@ -9,19 +9,14 @@ class AuthGate {
   // ------------------------------------------------------------
   static String _pickRole(dynamic data) {
     if (data == null) return 'customer';
-
-    if (data is String) {
-      return data.toLowerCase();
-    }
+    if (data is String) return data.toLowerCase();
 
     if (data is List) {
       final roles = data.map((e) => e.toString().toLowerCase()).toList();
-
       if (roles.contains('business')) return 'business';
       if (roles.contains('employee')) return 'employee';
       if (roles.contains('customer')) return 'customer';
     }
-
     return 'customer';
   }
 
@@ -32,73 +27,69 @@ class AuthGate {
     final session = _supabase.auth.currentSession;
     final user = _supabase.auth.currentUser;
 
-    // --------------------------------------------------------
-    // 0️⃣ User logged in → EMAIL VERIFICATION FIRST
-    // --------------------------------------------------------
-    if (user != null) {
-      final isEmailVerified = user.emailConfirmedAt != null;
+    final isLoggingIn = location == '/login';
+    final isVerifying = location == '/verify-email';
+    final isContinue = location == '/continue';
 
-      if (!isEmailVerified) {
-        return location == '/verify-email' ? null : '/verify-email';
+    // --------------------------------------------------------
+    // 1️⃣ NOT LOGGED IN
+    // --------------------------------------------------------
+    if (user == null || session == null) {
+      final profiles = await SessionManager.getProfiles();
+
+      if (profiles.isNotEmpty) {
+        // if local profiles exist → show continue screen
+        return isContinue ? null : '/continue';
+        //  return isVerifying ? null : '/verify-email';
       }
+
+      // no profiles → go to login
+      return isLoggingIn ? null : '/login';
     }
 
     // --------------------------------------------------------
-    // 1️⃣ Active session → redirect by role
+    // 2️⃣ EMAIL NOT VERIFIED
     // --------------------------------------------------------
-    if (user != null && session != null) {
-      String? role = await SessionManager.getUserRole();
+    if (user.emailConfirmedAt == null) {
+      return isVerifying ? null : '/verify-email';
+    }
 
-      // --------------------------------------------
-      // No local role → fetch from Supabase profile
-      // --------------------------------------------
-      if (role == null) {
-        try {
-          final res = await _supabase
-              .from('profiles')
-              .select('role, roles')
-              .eq('id', user.id)
-              .maybeSingle();
+    // --------------------------------------------------------
+    // 3️⃣ RESOLVE ROLE (from local first → DB fallback)
+    // --------------------------------------------------------
+    String? role = await SessionManager.getUserRole();
 
-          if (res != null) {
-            final dynamic roleField = res['role'] ?? res['roles'];
-            role = _pickRole(roleField);
-            await SessionManager.saveUserRole(role);
-          }
-        } catch (_) {
-          // ignore
+    if (role == null) {
+      try {
+        final res = await _supabase
+            .from('profiles')
+            .select('role, roles')
+            .eq('id', user.id)
+            .maybeSingle();
+
+        if (res != null) {
+          final dynamic roleField = res['role'] ?? res['roles'];
+          role = _pickRole(roleField);
+          await SessionManager.saveUserRole(role);
         }
+      } catch (_) {
+        role = 'customer';
       }
+    }
 
-      // --------------------------------------------
-      // Redirect by resolved role (SAFE)
-      // --------------------------------------------
-      if (role == 'business') {
+    role ??= 'customer';
+
+    // --------------------------------------------------------
+    // 4️⃣ ROLE BASED REDIRECT
+    // --------------------------------------------------------
+    switch (role) {
+      case 'business':
         return location == '/owner' ? null : '/owner';
-      }
-
-      if (role == 'employee') {
+      case 'employee':
         return location == '/employee' ? null : '/employee';
-      }
-
-      if (role == 'customer') {
+      case 'customer':
+      default:
         return location == '/customer' ? null : '/customer';
-      }
-
-      return location == '/customer' ? null : '/customer';
     }
-
-    // --------------------------------------------------------
-    // 2️⃣ No session → check saved local profiles
-    // --------------------------------------------------------
-    final profiles = await SessionManager.getProfiles();
-    if (profiles.isNotEmpty) {
-      return location == '/continue' ? null : '/continue';
-    }
-
-    // --------------------------------------------------------
-    // 3️⃣ No session & no profiles → Login
-    // --------------------------------------------------------
-    return location == '/login' ? null : '/login';
   }
 }

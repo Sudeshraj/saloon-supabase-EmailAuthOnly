@@ -34,12 +34,16 @@ late final GoRouter router;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ---------------- FIREBASE INIT ----------------
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-  } catch (_) {}
+  } catch (e) {
+    debugPrint('Firebase init skipped: $e');
+  }
 
+  // ---------------- SUPABASE INIT ----------------
   await Supabase.initialize(
     url: 'https://ifhenrgfpahandumdwmt.supabase.co',
     anonKey:
@@ -65,60 +69,55 @@ class _MyAppState extends State<MyApp> {
   late final NetworkService _networkService;
   StreamSubscription<bool>? _networkSub;
   StreamSubscription<AuthState>? _authSub;
-
   bool _offline = false;
 
   @override
   void initState() {
     super.initState();
 
-    // ---------------- NETWORK ----------------
+    // --------------------------------------------------
+    // NETWORK LISTENER
+    // --------------------------------------------------
     _networkService = NetworkService();
     _networkSub = _networkService.onStatusChange.listen((online) {
       if (!mounted) return;
       setState(() => _offline = !online);
     });
 
-    // ---------------- ROUTER ----------------
+    // --------------------------------------------------
+    // ROUTER (with AuthGate redirect)
+    // --------------------------------------------------
     router = GoRouter(
       navigatorKey: navigatorKey,
       initialLocation: '/',
+      debugLogDiagnostics: false,
       routes: [
         GoRoute(path: '/', builder: (_, __) => const SplashScreen()),
         GoRoute(path: '/login', builder: (_, __) => const SignInScreen()),
         GoRoute(
           path: '/verify-email',
-          builder: (_, __) => EmailVerifyChecker(),
+          builder: (_, __) => const EmailVerifyChecker(),
         ),
         GoRoute(path: '/continue', builder: (_, __) => const ContinueScreen()),
         GoRoute(path: '/customer', builder: (_, __) => const CustomerHome()),
-        GoRoute(path: '/employee', builder: (_, __) => const EmployeeDashboard()),
+        GoRoute(
+          path: '/employee',
+          builder: (_, __) => const EmployeeDashboard(),
+        ),
         GoRoute(path: '/owner', builder: (_, __) => const OwnerDashboard()),
       ],
-
-      // 🔥 AUTH GATE (deep link / refresh / resume)
       redirect: (context, state) async {
-        return AuthGate.redirect(state.matchedLocation);
+        // 👇 async redirect for Supabase auth state
+        final next = await AuthGate.redirect(state.matchedLocation);
+        return next;
       },
     );
 
-    // ---------------- AUTH LISTENER (FIXED) ----------------
-    _authSub =
-        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
-      final event = data.event;
-
-      // 🔴 SIGN OUT → LOGIN
-      if (event == AuthChangeEvent.signedOut) {
-        router.go('/login');
-        return;
-      }
-
-      // 🟢 SIGN IN / USER UPDATED
-      if (event == AuthChangeEvent.signedIn ||
-          event == AuthChangeEvent.userUpdated) {
-        router.go('/');
-        return;
-      }
+    // --------------------------------------------------
+    // SUPABASE AUTH STATE HANDLER
+    // --------------------------------------------------
+    _authSub = Supabase.instance.client.auth.onAuthStateChange.listen((event) {
+      router.refresh(); // 👈 re-run redirect logic
     });
   }
 
@@ -140,28 +139,25 @@ class _MyAppState extends State<MyApp> {
       builder: (context, child) {
         return Stack(
           children: [
+            // 👇 Dim screen when offline
             AbsorbPointer(
               absorbing: _offline,
               child: ColorFiltered(
                 colorFilter: _offline
-                    ? const ColorFilter.mode(
-                        Colors.grey,
-                        BlendMode.saturation,
-                      )
+                    ? const ColorFilter.mode(Colors.grey, BlendMode.saturation)
                     : const ColorFilter.mode(
                         Colors.transparent,
                         BlendMode.multiply,
                       ),
-                child: child!,
+                child: child ?? const SizedBox(),
               ),
             ),
+            // 👇 Offline banner
             Positioned(
               bottom: 0,
               left: 0,
               right: 0,
-              child: SafeArea(
-                child: NetworkBanner(offline: _offline),
-              ),
+              child: SafeArea(child: NetworkBanner(offline: _offline)),
             ),
           ],
         );
