@@ -106,10 +106,13 @@ class _MyAppState extends State<MyApp> {
         ),
         GoRoute(path: '/owner', builder: (_, __) => const OwnerDashboard()),
       ],
+      // redirect: (context, state) async {
+      //   // 👇 async redirect for Supabase auth state
+      //   final next = await AuthGate.redirect(state.matchedLocation);
+      //   return next;
+      // },
       redirect: (context, state) async {
-        // 👇 async redirect for Supabase auth state
-        final next = await AuthGate.redirect(state.matchedLocation);
-        return next;
+        return AuthGate.redirect(state.uri.path);
       },
     );
 

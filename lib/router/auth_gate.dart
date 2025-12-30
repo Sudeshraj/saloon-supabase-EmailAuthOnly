@@ -5,7 +5,7 @@ class AuthGate {
   static final _supabase = Supabase.instance.client;
 
   // ------------------------------------------------------------
-  // Priority role selector (business > employee > customer)
+  // ROLE PICKER (priority: business > employee > customer)
   // ------------------------------------------------------------
   static String _pickRole(dynamic data) {
     if (data == null) return 'customer';
@@ -21,75 +21,71 @@ class AuthGate {
   }
 
   // ------------------------------------------------------------
-  // MAIN REDIRECT LOGIC (GoRouter compatible)
+  // MAIN REDIRECT LOGIC (OPTIMIZED)
   // ------------------------------------------------------------
   static Future<String?> redirect(String location) async {
-    final session = _supabase.auth.currentSession;
-    final user = _supabase.auth.currentUser;
+    // -------------------------------------------------------
+    // 0️⃣ ALWAYS ALLOWED ROUTES (EXIT EARLY)|login,email verify,role check කරන්න එපා directly open වෙන්න allow කරන routes
+    // --------------------------------------------------------
+    const allowed = {'/', '/login', '/continue', '/verify-email'};
 
-    final isLoggingIn = location == '/login';
-    final isVerifying = location == '/verify-email';
-    final isContinue = location == '/continue';
+    if (allowed.contains(location)) return null;
+
+    final auth = _supabase.auth;
+    final session = auth.currentSession;
+    final user = auth.currentUser;
 
     // --------------------------------------------------------
     // 1️⃣ NOT LOGGED IN
     // --------------------------------------------------------
     if (user == null || session == null) {
-      final profiles = await SessionManager.getProfiles();
+      final hasProfiles = (await SessionManager.getProfiles()).isNotEmpty;
 
-      if (profiles.isNotEmpty) {
-        // if local profiles exist → show continue screen
-        return isContinue ? null : '/continue';
-        //  return isVerifying ? null : '/verify-email';
+      if (hasProfiles && location != '/continue') {
+        return '/continue';
       }
 
-      // no profiles → go to login
-      return isLoggingIn ? null : '/login';
+      return location == '/login' ? null : '/login';
     }
 
     // --------------------------------------------------------
     // 2️⃣ EMAIL NOT VERIFIED
     // --------------------------------------------------------
+
+    // if (user.emailConfirmedAt == null) {
+    //   return '/verify-email';
+    // }
+
     if (user.emailConfirmedAt == null) {
-      return isVerifying ? null : '/verify-email';
+      return location == '/verify-email' ? null : '/verify-email';
     }
 
     // --------------------------------------------------------
-    // 3️⃣ RESOLVE ROLE (from local first → DB fallback)
+    // 3️⃣ ROLE RESOLUTION (LOCAL → DB ONCE)
     // --------------------------------------------------------
     String? role = await SessionManager.getUserRole();
 
     if (role == null) {
-      try {
-        final res = await _supabase
-            .from('profiles')
-            .select('role, roles')
-            .eq('id', user.id)
-            .maybeSingle();
+      final res = await _supabase
+          .from('profiles')
+          .select('role, roles')
+          .eq('id', user.id)
+          .maybeSingle();
 
-        if (res != null) {
-          final dynamic roleField = res['role'] ?? res['roles'];
-          role = _pickRole(roleField);
-          await SessionManager.saveUserRole(role);
-        }
-      } catch (_) {
-        role = 'customer';
-      }
+      role = _pickRole(res?['role'] ?? res?['roles']);
+      await SessionManager.saveUserRole(role);
     }
 
-    role ??= 'customer';
+    // 4️⃣ ROLE BASED ROUTING (PREFIX SAFE)
+    bool isIn(String base) => location.startsWith(base);
 
-    // --------------------------------------------------------
-    // 4️⃣ ROLE BASED REDIRECT
-    // --------------------------------------------------------
     switch (role) {
       case 'business':
-        return location == '/owner' ? null : '/owner';
+        return isIn('/owner') ? null : '/owner';
       case 'employee':
-        return location == '/employee' ? null : '/employee';
-      case 'customer':
+        return isIn('/employee') ? null : '/employee';
       default:
-        return location == '/customer' ? null : '/customer';
+        return isIn('/customer') ? null : '/customer';
     }
   }
 }

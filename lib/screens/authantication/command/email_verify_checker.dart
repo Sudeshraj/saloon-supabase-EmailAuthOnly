@@ -199,10 +199,7 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
 
     setState(() => canResend = false);
 
-    await supabase.auth.resend(
-      type: OtpType.signup,
-      email: user.email!,
-    );
+    await supabase.auth.resend(type: OtpType.signup, email: user.email!);
 
     await prefs.setInt('lastVerificationSent', now);
     startCooldown(30);
@@ -261,7 +258,7 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                       width: _cardWidth(context),
                       padding: const EdgeInsets.all(24),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.94),
+                        color: Colors.white.withValues(alpha: 0.94),
                         borderRadius: BorderRadius.circular(20),
                         boxShadow: const [
                           BoxShadow(
@@ -314,8 +311,9 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                             alignment: WrapAlignment.center,
                             children: [
                               ElevatedButton(
-                                onPressed:
-                                    canResend ? resendVerification : null,
+                                onPressed: canResend
+                                    ? resendVerification
+                                    : null,
                                 child: Text(
                                   canResend
                                       ? "Resend Email"

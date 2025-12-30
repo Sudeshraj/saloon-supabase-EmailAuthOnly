@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/main.dart';
-import 'package:flutter_application_1/screens/authantication/command/not_you.dart';
 import 'package:flutter_application_1/screens/commands/alertBox/notyou.dart';
 import 'package:flutter_application_1/screens/commands/alertBox/show_custom_alert.dart';
 import '../services/session_manager.dart';
@@ -38,8 +37,8 @@ class _ContinueScreenState extends State<ContinueScreen> {
     setState(() => _loading = true);
 
     User? user = supabase.auth.currentUser;
-    bool isUnverifiedEmail = false; // 👈 add this flag
 
+    // Step 1: if not logged in yet, sign in
     if (user == null) {
       final savedPass = await SessionManager.getPassword(
         profile['email'],
@@ -55,59 +54,15 @@ class _ContinueScreenState extends State<ContinueScreen> {
         } on AuthException catch (e) {
           final msg = e.message.toLowerCase();
 
+          // EMAIL NOT VERIFIED
           if (msg.contains("email not confirmed")) {
-            if (!mounted) return;
-
             setState(() => _loading = false);
-
-            await showNotYouDialog(
-              context: context,
-              email: profile['email'],
-              name: profile['name'] ?? 'Unknown User',
-              photoUrl: profile['photo'] ?? '',
-              roles: [profile['role']],
-              buttonText: 'Not You?',
-
-              // 🔵 Continue button
-              onContinue: () async {
-                print('a');
-                Navigator.pop(context); // close dialog
-                context.go('/verify-email');
-              },
-
-              // 🔴 Not You button
-              onNotYou: () async {
-                // await supabase.auth.signOut();
-                // if (context.mounted) {
-                //   Navigator.pop(context); // close dialog
-                //   context.go('/sign-in');
-                // }
-
-                final nav = navigatorKey.currentState;
-                if (nav == null) return;
-
-                final dialogCtx = nav.overlay!.context;
-
-                await showCustomAlert(
-                  dialogCtx,
-                  title: "Remove Profile?",
-                  message:
-                      "This role profile will be removed from this device.",
-                  isError: true,
-                  buttonText: "Delete",
-                  onOk: () async {
-                    await SessionManager.deleteRoleProfile(
-                      user?.email ?? '',
-                      profile['role'],
-                    );
-                    await supabase.auth.signOut();
-                  },
-                );
-              },
-            );
-
+            await _showVerificationDialog(profile);
             return;
-          } else if (msg.contains("invalid login credentials")) {
+          }
+          if (!mounted) return;
+          // INVALID LOGIN
+          if (msg.contains("invalid login credentials")) {
             await showCustomAlert(
               context,
               title: "Login Failed",
@@ -116,17 +71,18 @@ class _ContinueScreenState extends State<ContinueScreen> {
             );
             setState(() => _loading = false);
             return;
-          } else {
-            await showCustomAlert(
-              context,
-              title: "Auth Error",
-              message: e.message,
-              isError: true,
-            );
-            setState(() => _loading = false);
-            return;
           }
+
+          await showCustomAlert(
+            context,
+            title: "Auth Error",
+            message: e.message,
+            isError: true,
+          );
+          setState(() => _loading = false);
+          return;
         } catch (e) {
+          if (!mounted) return;
           await showCustomAlert(
             context,
             title: "Server Error",
@@ -144,66 +100,19 @@ class _ContinueScreenState extends State<ContinueScreen> {
       return;
     }
 
-    await supabase.auth.refreshSession();
-
-    // -------------------------------------------------------------
-    // EMAIL NOT VERIFIED (edge case)
-    // -------------------------------------------------------------
-    if (isUnverifiedEmail || user.emailConfirmedAt == null) {
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => NotYouScreen(
-            email: user?.email ?? '',
-            name: profile['name'] ?? "Unknown User",
-            photoUrl: profile['photo'] ?? '',
-            roles: [profile['role']],
-            buttonText: "Not You?",
-            page: 'cont',
-            onNotYou: () async {
-              final nav = navigatorKey.currentState;
-              if (nav == null) return;
-
-              final dialogCtx = nav.overlay!.context;
-
-              await showCustomAlert(
-                dialogCtx,
-                title: "Remove Profile?",
-                message: "This role profile will be removed from this device.",
-                isError: true,
-                buttonText: "Delete",
-                onOk: () async {
-                  await SessionManager.deleteRoleProfile(
-                    user?.email ?? '',
-                    profile['role'],
-                  );
-                  await supabase.auth.signOut();
-                  nav.pushReplacement(
-                    MaterialPageRoute(builder: (_) => const ContinueScreen()),
-                  );
-                },
-              );
-            },
-            onContinue: () async {
-              context.go('/verify-email');
-            },
-          ),
-        ),
-      );
+    // Step 2: check email verification
+    final emailVerified = user.emailConfirmedAt != null;
+    if (!emailVerified) {
       setState(() => _loading = false);
+      await _showVerificationDialog(profile);
       return;
     }
 
-    // -------------------------------------------------------------
-    // EMAIL VERIFIED → REDIRECT BY ROLE
-    // -------------------------------------------------------------
-    final String role = profile['role'];
+    // Step 3: verified → redirect based on role
+    final role = profile['role'];
     await SessionManager.saveUserRole(role);
-    await Future.delayed(const Duration(milliseconds: 100));
 
     if (!mounted) return;
-
     switch (role) {
       case "customer":
         context.go('/customer');
@@ -219,6 +128,43 @@ class _ContinueScreenState extends State<ContinueScreen> {
     }
 
     setState(() => _loading = false);
+  }
+
+  Future<void> _showVerificationDialog(Map<String, dynamic> profile) async {
+    await showNotYouDialog(
+      context: context,
+      email: profile['email'],
+      name: profile['name'] ?? 'Unknown User',
+      photoUrl: profile['photo'] ?? '',
+      roles: [profile['role']],
+      buttonText: 'Not You?',
+      onContinue: () async {
+        Navigator.of(context, rootNavigator: true).pop();
+        navigatorKey.currentContext!.go('/verify-email');
+      },
+
+      onNotYou: () async {
+        final nav = navigatorKey.currentState;
+        if (nav == null) return;
+
+        final dialogCtx = nav.overlay!.context;
+        await showCustomAlert(
+          dialogCtx,
+          title: "Remove Profile?",
+          message: "This role profile will be removed from this device.",
+          isError: true,
+          buttonText: "Delete",
+          onOk: () async {
+            await SessionManager.deleteRoleProfile(
+              profile['email'],
+              profile['role'],
+            );
+            await supabase.auth.signOut();
+            _loadProfiles();
+          },
+        );
+      },
+    );
   }
 
   // popup delete
