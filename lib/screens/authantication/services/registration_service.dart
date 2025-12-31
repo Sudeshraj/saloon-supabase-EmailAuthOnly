@@ -63,9 +63,10 @@ class SaveUser {
       email: email,
       password: password,
       data: {'name': displayName},
+      // emailRedirectTo: 'https://myapp.com/verify-email' // live
       emailRedirectTo: kIsWeb
-          ? 'https://myapp.com/auth'
-          : 'myapp://auth',
+          ? 'https://myapp.com/verify-email'
+          : 'myapp://verify-email',
     );
 
     if (res.user == null) {

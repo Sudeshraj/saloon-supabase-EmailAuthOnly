@@ -35,8 +35,10 @@
                 <!--Deeflink-->
                  <action android:name="android.intent.action.VIEW" />
                  <category android:name="android.intent.category.DEFAULT" />
-                 <category android:name="android.intent.category.BROWSABLE" />
-                 <data android:scheme="myapp" android:host="auth" />
+                 <category android:name="android.intent.category.BROWSABLE" />                
+                  <!-- <data android:scheme="https" android:host="myapp.com" android:pathPrefix="/verify-email" /> live -->
+
+                   <data android:scheme="myapp" android:host="verify-email" /> <!-- test -->
                  
             </intent-filter>
 
