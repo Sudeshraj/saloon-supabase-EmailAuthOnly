@@ -1,12 +1,14 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// 🧠 SessionManager (Supabase Edition)
 /// Securely manages multiple role-based profiles and encrypted passwords.
 class SessionManager {
   static const _keyProfiles = 'profiles';
   static const _secure = FlutterSecureStorage(); // Encrypted OS-level storage
+    final SupabaseClient _supabase = Supabase.instance.client;
 
   /// -------------------------------------------------------
   /// 🔹 Get all locally saved profiles (without password)
@@ -158,4 +160,22 @@ class SessionManager {
   static Future<SharedPreferences> getPrefs() async {
     return await SharedPreferences.getInstance();
   }
+
+   // ------------------------------------------------------------
+  // 🕒 Wait for deep-link session restore (EDGE CASE HANDLER)
+  // ------------------------------------------------------------
+  static Future<void> waitForSession({
+    int retries = 10,
+    Duration delay = const Duration(milliseconds: 300),
+  }) async {
+    final supabase = Supabase.instance.client;
+
+    for (int i = 0; i < retries; i++) {
+      final session = supabase.auth.currentSession;
+      if (session != null) return;
+      await Future.delayed(delay);
+    }
+  }
+
+
 }

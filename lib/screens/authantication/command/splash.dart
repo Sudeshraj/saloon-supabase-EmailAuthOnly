@@ -1,7 +1,85 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/router/auth_gate.dart';
+import 'package:flutter_application_1/screens/authantication/services/session_manager.dart';
+import 'package:go_router/go_router.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  final _supabase = Supabase.instance.client;
+
+  @override
+  void initState() {
+    super.initState();
+    _decideRoute();
+  }
+
+  // ------------------------------------------------------------
+  // 🔑 ALL ASYNC DECISION LOGIC (SAFE PLACE)
+  // ------------------------------------------------------------
+  Future<void> _decideRoute() async {
+    final supabase = _supabase;
+
+    // 1️⃣ Wait for deep-link session
+    await SessionManager.waitForSession();
+
+    if (!mounted) return;
+
+    // 2️⃣ Refresh session
+    await supabase.auth.refreshSession();
+    if (!mounted) return;
+
+    final user = supabase.auth.currentUser;
+    final session = supabase.auth.currentSession;
+
+    // 3️⃣ Not logged in
+    if (user == null || session == null) {
+      context.go('/login');
+      return;
+    }
+
+    // 4️⃣ Email not verified
+    if (user.emailConfirmedAt == null) {
+      context.go('/verify-email');
+      return;
+    }
+
+    // 5️⃣ Resolve role
+    String? role = await SessionManager.getUserRole();
+    if (!mounted) return;
+
+    if (role == null) {
+      final res = await supabase
+          .from('profiles')
+          .select('role, roles')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      if (!mounted) return;
+
+      role = AuthGate.pickRole(res?['role'] ?? res?['roles']);
+      await SessionManager.saveUserRole(role);
+      if (!mounted) return;
+    }
+
+    // 6️⃣ Navigate safely
+    switch (role) {
+      case 'business':
+        context.go('/owner');
+        break;
+      case 'employee':
+        context.go('/employee');
+        break;
+      default:
+        context.go('/customer');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -15,7 +93,6 @@ class SplashScreen extends StatelessWidget {
             //   'assets/logo.png',
             //   height: 120,
             // ),
-
             SizedBox(height: 24),
 
             CircularProgressIndicator(),
@@ -24,10 +101,7 @@ class SplashScreen extends StatelessWidget {
 
             Text(
               'Checking session...',
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey,
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
           ],
         ),

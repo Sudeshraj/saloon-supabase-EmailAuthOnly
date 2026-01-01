@@ -112,7 +112,7 @@ class _ContinueScreenState extends State<ContinueScreen> {
     final role = profile['role'];
     await SessionManager.saveUserRole(role);
 
-    if (!mounted) return;
+    if (!mounted) return; //mounted true unoth false venava return venne naha,idiriyta code eka run ve. false unoth true vela return karanava evita code eka stop venava
     switch (role) {
       case "customer":
         context.go('/customer');
