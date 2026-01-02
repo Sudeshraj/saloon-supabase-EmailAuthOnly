@@ -43,11 +43,14 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
     _setupAnimations();
     _restoreCooldown();
 
-    checkVerification();
-    timer = Timer.periodic(
-      const Duration(seconds: 3),
-      (_) => checkVerification(),
-    );
+//...............
+    // checkVerification();
+    // timer = Timer.periodic(
+    //   const Duration(seconds: 3),
+    //   (_) => checkVerification(),
+    // );
+//..........
+
   }
 
   // ------------------------------------------------------------
@@ -120,23 +123,28 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   // ------------------------------------------------------------
   // CHECK EMAIL VERIFIED
   // ------------------------------------------------------------
-  Future<void> checkVerification() async {
-    final res = await supabase.auth.getUser();
-    final user = res.user;
-    if (user == null) return;
+ Future<void> checkVerification() async {
+  final user = supabase.auth.currentUser;
 
-    final verified = user.emailConfirmedAt != null;
-
-    if (verified && !isEmailVerified && mounted) {
-      timer?.cancel();
-      setState(() => isEmailVerified = true);
-
-      await Future.delayed(const Duration(milliseconds: 400));
-      if (!mounted) return;
-
-      redirectByRole();
-    }
+  // session naththam crash wenne na
+  if (user == null) {
+    debugPrint('No active session');
+    return;
   }
+
+  final verified = user.emailConfirmedAt != null;
+
+  if (verified && !isEmailVerified && mounted) {
+    timer?.cancel();
+    setState(() => isEmailVerified = true);
+
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+
+    redirectByRole();
+  }
+}
+
 
   // ------------------------------------------------------------
   // ROLE BASED REDIRECT
@@ -228,138 +236,172 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   // ------------------------------------------------------------
   // UI (UNCHANGED)
   // ------------------------------------------------------------
-  @override
+ @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return PopScope(
-      canPop: false,
-      child: Scaffold(
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFFf7fbff), Color(0xFFE8F0FF)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [Color(0xFFEEF3FF), Color(0xFFDDE7FF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
-          child: SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  vertical: 40,
-                  horizontal: 16,
-                ),
-                child: ScaleTransition(
-                  scale: _scaleAnim,
-                  child: FadeTransition(
-                    opacity: _fadeAnim,
-                    child: Container(
-                      width: _cardWidth(context),
-                      padding: const EdgeInsets.all(24),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.94),
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: const [
-                          BoxShadow(
-                            color: Colors.black12,
-                            blurRadius: 30,
-                            offset: Offset(0, 12),
-                          ),
-                        ],
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.mark_email_read_rounded,
-                            size: 96,
-                            color: Colors.deepPurple,
-                          ),
-                          const SizedBox(height: 20),
-                          Text(
-                            "Verify your email",
-                            style: theme.textTheme.titleLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
+        ),
+        child: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: ScaleTransition(
+                scale: _scaleAnim,
+                child: FadeTransition(
+                  opacity: _fadeAnim,
+                  child: Container(
+                    width: _cardWidth(context),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x22000000),
+                          blurRadius: 30,
+                          offset: Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      children: [
+                        const Icon(Icons.mark_email_read_rounded,
+                            size: 80, color: Colors.deepPurple),
+                        const SizedBox(height: 24),
+                        Text(
+                          "Verify your email",
+                          style: theme.textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 12),
+                        const Text(
+                          "We’ve sent a verification link to your email.\n"
+                          "Open it to continue.\n\n"
+                          "This screen updates automatically.",
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 26),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            SizedBox(
+                              width: 18,
+                              height: 18,
+                              child:
+                                  CircularProgressIndicator(strokeWidth: 2),
                             ),
-                          ),
-                          const SizedBox(height: 12),
-                          const Text(
-                            "We’ve sent a verification link to your email. "
-                            "Open it to continue. This screen will update automatically.",
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: 24),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: const [
-                              SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2.2,
-                                ),
-                              ),
-                              SizedBox(width: 12),
-                              Text("Waiting for verification…"),
-                            ],
-                          ),
-                          const SizedBox(height: 24),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 10,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              ElevatedButton(
-                                onPressed: canResend
-                                    ? resendVerification
-                                    : null,
-                                child: Text(
-                                  canResend
-                                      ? "Resend Email"
-                                      : "Wait ${cooldownRemaining}s",
-                                ),
-                              ),
-                              ElevatedButton.icon(
-                                onPressed: () => openEmailApp(
-                                  context,
-                                  supabase.auth.currentUser?.email,
-                                ),
-                                icon: const Icon(Icons.open_in_new),
-                                label: const Text("Open Email App"),
-                              ),
-                              TextButton(
-                                onPressed: logout,
-                                child: const Text(
-                                  "Verify Later",
-                                  style: TextStyle(color: Colors.redAccent),
-                                ),
-                              ),
-                            ],
-                          ),
-                          if (isEmailVerified) ...[
-                            const SizedBox(height: 20),
-                            const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.check_circle, color: Colors.teal),
-                                SizedBox(width: 8),
-                                Text(
-                                  "Verified! Redirecting…",
-                                  style: TextStyle(
-                                    color: Colors.teal,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
+                            SizedBox(width: 12),
+                            Text("Waiting for verification…"),
                           ],
+                        ),
+                        const SizedBox(height: 30),
+
+                        /// RESEND BUTTON (COOLDOWN VISIBLE)
+                        PrimaryOutlineButton(
+                          text: canResend
+                              ? "Resend Verification Email"
+                              : "Wait ${cooldownRemaining}s",
+                          onPressed: resendVerification,
+                          color: const Color(0xFF1E88E5),
+                          icon: Icons.refresh,
+                          disabled: !canResend,
+                        ),
+                        const SizedBox(height: 14),
+
+                        PrimaryOutlineButton(
+                          text: "Open Email App",
+                          onPressed: () => openEmailApp(
+                            context,
+                            supabase.auth.currentUser?.email,
+                          ),
+                          color: const Color(0xFF6A1B9A),
+                          icon: Icons.open_in_new,
+                        ),
+                        const SizedBox(height: 14),
+
+                        PrimaryOutlineButton(
+                          text: "Verify Later",
+                          onPressed: logout,
+                          color: Colors.redAccent,
+                          icon: Icons.logout,
+                        ),
+
+                        if (isEmailVerified) ...[
+                          const SizedBox(height: 26),
+                          const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.check_circle, color: Colors.teal),
+                              SizedBox(width: 8),
+                              Text(
+                                "Verified! Redirecting…",
+                                style: TextStyle(
+                                    color: Colors.teal,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
                         ],
-                      ),
+                      ],
                     ),
                   ),
                 ),
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ------------------------------------------------------------
+// REUSABLE BUTTON
+// ------------------------------------------------------------
+class PrimaryOutlineButton extends StatelessWidget {
+  final String text;
+  final VoidCallback onPressed;
+  final Color color;
+  final IconData icon;
+  final bool disabled;
+
+  const PrimaryOutlineButton({
+    super.key,
+    required this.text,
+    required this.onPressed,
+    required this.color,
+    required this.icon,
+    this.disabled = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: Opacity(
+        opacity: disabled ? 0.55 : 1,
+        child: OutlinedButton.icon(
+          icon: Icon(icon, color: color),
+          label: Text(
+            text,
+            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+          ),
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            backgroundColor: color.withValues(alpha: 0.12),
+            side: BorderSide(color: color),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(26),
             ),
           ),
         ),

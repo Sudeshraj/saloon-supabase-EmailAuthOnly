@@ -55,12 +55,12 @@ Widget _roleCard({
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: accentColor.withOpacity(0.6),
+            color: accentColor.withValues(alpha: 0.6),
             width: 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: accentColor.withOpacity(0.25),
+              color: accentColor.withValues(alpha: 0.25),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -86,7 +86,7 @@ Widget _roleCard({
                       begin: Alignment.bottomCenter,
                       end: Alignment.topCenter,
                       colors: [
-                        accentColor.withOpacity(0.6),
+                        accentColor.withValues(alpha:0.6),
                         Colors.transparent,
                       ],
                     ),

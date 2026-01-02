@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/main.dart';
 import 'package:flutter_application_1/screens/authantication/command/email_screen.dart';
 import 'package:flutter_application_1/screens/authantication/business_reg/company_name_screen.dart';
 import 'package:flutter_application_1/screens/authantication/customer_reg/name_screen.dart';
@@ -70,66 +71,66 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
   // CUSTOMER FLOW
   // -----------------------------------------------------------------------
   List<Widget> _buildCustomerFlow() => [
-        NameEntry(
-          onNext: (f, l) {
-            setState(() {
-              firstName = f;
-              lastName = l;
-            });
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        EmailScreen(
-          onNext: (e) {
-            setState(() => email = e);
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        PasswordScreen(
-          onNext: (p) {
-            setState(() => password = p);
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        FinishScreen(
-          controller: _controller,
-          onSignUp: () async => _handleRegistration(),
-        ),
-      ];
+    NameEntry(
+      onNext: (f, l) {
+        setState(() {
+          firstName = f;
+          lastName = l;
+        });
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    EmailScreen(
+      onNext: (e) {
+        setState(() => email = e);
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    PasswordScreen(
+      onNext: (p) {
+        setState(() => password = p);
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    FinishScreen(
+      controller: _controller,
+      onSignUp: () async => _handleRegistration(),
+    ),
+  ];
 
   // -----------------------------------------------------------------------
   // BUSINESS FLOW
   // -----------------------------------------------------------------------
   List<Widget> _buildBusinessFlow() => [
-        CompanyNameScreen(
-          onNext: (n) {
-            setState(() => companyName = n);
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        EmailScreen(
-          onNext: (e) {
-            setState(() => email = e);
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        PasswordScreen(
-          onNext: (p) {
-            setState(() => password = p);
-            _nextPage();
-          },
-          controller: _controller,
-        ),
-        FinishScreen(
-          controller: _controller,
-          onSignUp: () async => _handleRegistration(),
-        ),
-      ];
+    CompanyNameScreen(
+      onNext: (n) {
+        setState(() => companyName = n);
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    EmailScreen(
+      onNext: (e) {
+        setState(() => email = e);
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    PasswordScreen(
+      onNext: (p) {
+        setState(() => password = p);
+        _nextPage();
+      },
+      controller: _controller,
+    ),
+    FinishScreen(
+      controller: _controller,
+      onSignUp: () async => _handleRegistration(),
+    ),
+  ];
 
   // -----------------------------------------------------------------------
   // HANDLER — CALLED FOR BOTH ROLES
@@ -169,8 +170,11 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
       }
       if (!context.mounted) return;
     } catch (e) {
+      final nav = navigatorKey.currentState;
+      if (nav == null) return;
+      final dialogCtx = nav.overlay!.context;
       await showCustomAlert(
-        context,
+        dialogCtx,
         title: "Registration Failed",
         message: e.toString(),
         isError: true,
@@ -182,7 +186,7 @@ class _RegistrationFlowState extends State<RegistrationFlow> {
 
   // -----------------------------------------------------------------------
   void _nextPage() => _controller.nextPage(
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.ease,
-      );
+    duration: const Duration(milliseconds: 300),
+    curve: Curves.ease,
+  );
 }

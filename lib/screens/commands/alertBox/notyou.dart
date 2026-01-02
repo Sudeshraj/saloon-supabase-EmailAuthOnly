@@ -16,7 +16,7 @@ Future<void> showNotYouDialog({
     context: context,
     barrierDismissible: false,
     barrierLabel: "NotYouDialog",
-    barrierColor: Colors.black.withOpacity(0.6),
+    barrierColor: Colors.black.withValues(alpha:0.6),
     transitionDuration: const Duration(milliseconds: 300),
     pageBuilder: (_, __, ___) {
       return SafeArea(
@@ -134,7 +134,7 @@ class _NotYouDialogContentState extends State<NotYouDialogContent> {
                   padding:
                       const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
                   decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.08),
+                    color: Colors.white.withValues(alpha:0.08),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.white24),
                   ),
