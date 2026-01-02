@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 class SessionManager {
   static const _keyProfiles = 'profiles';
   static const _secure = FlutterSecureStorage(); // Encrypted OS-level storage
-    final SupabaseClient _supabase = Supabase.instance.client;
 
   /// -------------------------------------------------------
   /// 🔹 Get all locally saved profiles (without password)

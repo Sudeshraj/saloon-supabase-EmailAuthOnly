@@ -28,23 +28,29 @@ class _SplashScreenState extends State<SplashScreen> {
 
     // 1️⃣ Wait for deep-link session
     await SessionManager.waitForSession();
-
     if (!mounted) return;
 
-    // 2️⃣ Refresh session
-    await supabase.auth.refreshSession();
-    if (!mounted) return;
-
-    final user = supabase.auth.currentUser;
     final session = supabase.auth.currentSession;
+    final user = supabase.auth.currentUser;
 
-    // 3️⃣ Not logged in
+    // 2️⃣ NOT logged in → no refresh
     if (user == null || session == null) {
       context.go('/login');
       return;
     }
 
-    // 4️⃣ Email not verified
+    // 3️⃣ Safe refresh (ONLY if session exists)
+    try {
+      await supabase.auth.refreshSession();
+    } catch (_) {
+      if (!mounted) return;
+      context.go('/login');
+      return;
+    }
+
+    if (!mounted) return;
+
+    // 4️⃣ Email not verified user kenek innavanam vitharai meka valid
     if (user.emailConfirmedAt == null) {
       context.go('/verify-email');
       return;
@@ -100,7 +106,7 @@ class _SplashScreenState extends State<SplashScreen> {
             SizedBox(height: 16),
 
             Text(
-              'Checking session...',
+              'LOADING',
               style: TextStyle(fontSize: 14, color: Colors.grey),
             ),
           ],

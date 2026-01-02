@@ -26,6 +26,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
     _fadeAnimation =
         CurvedAnimation(parent: _controller, curve: Curves.easeInOut);
+
     _scaleAnimation = Tween<double>(begin: 0.95, end: 1.0).animate(
       CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
     );
@@ -38,6 +39,81 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     _controller.dispose();
     super.dispose();
   }
+
+  /// 🔳 Role card widget (box frame like first image)
+Widget _roleCard({
+  required String image,
+  required String title,
+  required Color accentColor,
+  required VoidCallback onTap,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: AspectRatio(
+      aspectRatio: 3 / 4, // ✅ KEY FIX
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: accentColor.withOpacity(0.6),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: accentColor.withOpacity(0.25),
+              blurRadius: 12,
+              offset: const Offset(0, 6),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: Stack(
+            children: [
+              Positioned.fill(
+                child: Image.asset(
+                  image,
+                  fit: BoxFit.contain, // 🔥 IMPORTANT CHANGE
+                  alignment: Alignment.center,
+                ),
+              ),
+
+              // gradient overlay
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        accentColor.withOpacity(0.6),
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              Positioned(
+                bottom: 12,
+                left: 12,
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -57,8 +133,9 @@ class _WelcomeScreenState extends State<WelcomeScreen>
               child: ConstrainedBox(
                 constraints: BoxConstraints(maxWidth: maxWidth),
                 child: Container(
-                  height: size.height - 40, // 🔥 Match ContinueScreen style
-                  margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  height: size.height - 40,
+                  margin:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.03),
@@ -68,13 +145,17 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // 🔙 Back Button (top inside frame)
+                      // 🔙 Back
                       Align(
                         alignment: Alignment.topLeft,
                         child: IconButton(
-                          icon: const Icon(Icons.arrow_back_ios_new_rounded,
-                              color: Colors.white, size: 22),
-                          onPressed: () => Navigator.of(context).maybePop(),
+                          icon: const Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                          onPressed: () =>
+                              Navigator.of(context).maybePop(),
                         ),
                       ),
 
@@ -83,7 +164,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         child: SingleChildScrollView(
                           physics: const BouncingScrollPhysics(),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.center,
                             children: [
                               const SizedBox(height: 10),
                               const Text(
@@ -94,22 +174,36 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
-                              const SizedBox(height: 16),
+                              const SizedBox(height: 20),
 
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(12),
-                                child: Container(
-                                  width: double.infinity,
-                                  height: 220,
-                                  color: Colors.black12,
-                                  child: Image.asset(
-                                    'assets/full_illustration.png',
-                                    fit: BoxFit.cover,
+                              // 🖼️ Box framed images
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _roleCard(
+                                      image: 'customer.png',
+                                      title: 'Customer',
+                                      accentColor:
+                                          const Color(0xFF43A047), // green
+                                      onTap: () =>
+                                          widget.onNext('customer'),
+                                    ),
                                   ),
-                                ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: _roleCard(
+                                      image: 'businessman.png',
+                                      title: 'Business',
+                                      accentColor:
+                                          const Color(0xFF1E88E5), // blue
+                                      onTap: () =>
+                                          widget.onNext('business'),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(height: 16),
 
+                              const SizedBox(height: 24),
                               const Text(
                                 'Create an account to connect with trusted salons, discover new styles, and grow your business — all in one place.',
                                 textAlign: TextAlign.center,
@@ -125,26 +219,31 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                         ),
                       ),
 
-                      // 🔘 Buttons (bottom inside frame)
+                      // 🔘 Buttons (color matched)
                       Column(
                         children: [
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton(
-                              onPressed: () => widget.onNext('customer'),
+                              onPressed: () =>
+                                  widget.onNext('customer'),
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Color(0xFF1877F3)),
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                backgroundColor:
+                                    const Color(0xFF43A047)
+                                        .withValues(alpha: 0.15),
+                                side: const BorderSide(
+                                  color: Color(0xFF43A047),
+                                ),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(24),
                                 ),
-                                backgroundColor:
-                                    const Color(0xFF1877F3).withValues(alpha: 0.1),
                               ),
                               child: const Text(
                                 'Create new customer account',
                                 style: TextStyle(
-                                  color: Color(0xFF1877F3),
+                                  color: Color(0xFF43A047),
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -154,9 +253,15 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           SizedBox(
                             width: double.infinity,
                             child: OutlinedButton(
-                              onPressed: () => widget.onNext('business'),
+                              onPressed: () =>
+                                  widget.onNext('business'),
                               style: OutlinedButton.styleFrom(
-                                side: const BorderSide(color: Colors.white24),
+                                backgroundColor:
+                                    const Color(0xFF1E88E5)
+                                        .withValues(alpha: 0.15),
+                                side: const BorderSide(
+                                  color: Color(0xFF1E88E5),
+                                ),
                                 padding:
                                     const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(
@@ -166,8 +271,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                               child: const Text(
                                 'Create new business account',
                                 style: TextStyle(
-                                  color: Colors.white70,
-                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1E88E5),
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
