@@ -27,24 +27,16 @@ class AuthGate {
   // ------------------------------------------------------------
   // PURE REDIRECT LOGIC (ASYNC but NO await)
   // ------------------------------------------------------------
-  static Future<String?> redirect(String location) async {
-    const allowed = {'/', '/login', '/continue', '/verify-email'};
-    if (allowed.contains(location)) return null;
+ static Future<String?> redirect(String location) async {
+  const allowed = {'/', '/login', '/verify-email', '/continue'};
+  if (allowed.contains(location)) return null;
 
-    final user = _supabase.auth.currentUser;
-    final session = _supabase.auth.currentSession;
-
-    // not logged in
-    if (user == null || session == null) {
-      return location == '/login' ? null : '/login';
-    }
-
-    // email not verified
-    if (user.emailConfirmedAt == null) {
-      return location == '/verify-email' ? null : '/verify-email';
-    }
-
-    // logged in & verified → Splash handles role routing
-    return null;
+  final session = _supabase.auth.currentSession;
+print(session);
+  if (session == null) {
+    return '/login';
   }
+
+  return null; 
+}
 }

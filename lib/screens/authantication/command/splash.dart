@@ -21,27 +21,38 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   // ------------------------------------------------------------
-  // 🔑 ALL ASYNC DECISION LOGIC (SAFE PLACE)
+  // 🔑 ROUTE DECISION (PRODUCTION SAFE)
   // ------------------------------------------------------------
   Future<void> _decideRoute() async {
-    final supabase = _supabase;
+    // 0️⃣ Small delay (UI polish + engine settle)
+    await Future.delayed(const Duration(milliseconds: 300));
+    if (!mounted) return;
 
-    // 1️⃣ Wait for deep-link session
+    // 1️⃣ Check LOCAL profiles first (KEY REQUIREMENT)
+    final hasLocalProfile = await SessionManager.hasProfile();
+    if (!mounted) return;
+
+    if (hasLocalProfile) {
+      context.go('/continue');
+      return;
+    }
+
+    // 2️⃣ Wait for deep-link session restore
     await SessionManager.waitForSession();
     if (!mounted) return;
 
-    final session = supabase.auth.currentSession;
-    final user = supabase.auth.currentUser;
+    final session = _supabase.auth.currentSession;
+    final user = _supabase.auth.currentUser;
 
-    // 2️⃣ NOT logged in → no refresh
-    if (user == null || session == null) {
+    // 3️⃣ No session → login
+    if (session == null || user == null) {
       context.go('/login');
       return;
     }
 
-    // 3️⃣ Safe refresh (ONLY if session exists)
+    // 4️⃣ Refresh session safely
     try {
-      await supabase.auth.refreshSession();
+      await _supabase.auth.refreshSession();
     } catch (_) {
       if (!mounted) return;
       context.go('/login');
@@ -50,18 +61,18 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (!mounted) return;
 
-    // 4️⃣ Email not verified user kenek innavanam vitharai meka valid
+    // 5️⃣ Email not verified → verify screen
     if (user.emailConfirmedAt == null) {
       context.go('/verify-email');
       return;
     }
 
-    // 5️⃣ Resolve role
+    // 6️⃣ Resolve role
     String? role = await SessionManager.getUserRole();
     if (!mounted) return;
 
     if (role == null) {
-      final res = await supabase
+      final res = await _supabase
           .from('profiles')
           .select('role, roles')
           .eq('id', user.id)
@@ -71,10 +82,11 @@ class _SplashScreenState extends State<SplashScreen> {
 
       role = AuthGate.pickRole(res?['role'] ?? res?['roles']);
       await SessionManager.saveUserRole(role);
-      if (!mounted) return;
     }
 
-    // 6️⃣ Navigate safely
+    if (!mounted) return;
+
+    // 7️⃣ Final navigation
     switch (role) {
       case 'business':
         context.go('/owner');

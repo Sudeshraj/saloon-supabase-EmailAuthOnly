@@ -32,7 +32,8 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   void initState() {
     super.initState();
     _setupAnimation();
-    _restoreCooldown();
+    // _restoreCooldown();
+    checklocalprofile();
   }
 
   // ------------------------------------------------------------
@@ -55,6 +56,16 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
     );
 
     _controller.forward();
+  }
+
+  checklocalprofile() async {
+    final hasLocalProfile = await SessionManager.hasProfile();
+    if (hasLocalProfile) {
+      _restoreCooldown();
+    }else{
+     
+    }
+
   }
 
   // ------------------------------------------------------------
@@ -145,7 +156,9 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
       await prefs.setInt('lastVerificationSent', now);
       startCooldown(30);
     } catch (e) {
-      setState(() => canResend = true);
+      // setState(() => canResend = true);
+      await prefs.setInt('lastVerificationSent', now);
+      startCooldown(30);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text("Resend failed: $e")),
       );
