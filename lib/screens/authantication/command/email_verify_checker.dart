@@ -2,13 +2,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'splash.dart';
-import '../functions/open_email.dart';
 import '../services/session_manager.dart';
-
-import '../../home/customer_home.dart';
-import '../../home/employee_dashboard.dart';
-import '../../home/owner_dashboard.dart';
+import '../functions/open_email.dart';
+import 'splash.dart';
 
 class EmailVerifyChecker extends StatefulWidget {
   const EmailVerifyChecker({super.key});
@@ -18,17 +14,14 @@ class EmailVerifyChecker extends StatefulWidget {
 }
 
 class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
-    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin {
   final supabase = Supabase.instance.client;
 
-  bool isEmailVerified = false;
   bool canResend = true;
+  int remainingSeconds = 0;
+  Timer? resendTimer;
 
-  Timer? timer;
-  Timer? cooldownTimer;
-  int cooldownRemaining = 0;
-
-  late final AnimationController _entranceController;
+  late final AnimationController _controller;
   late final Animation<double> _scaleAnim;
   late final Animation<double> _fadeAnim;
 
@@ -38,45 +31,34 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
-
-    _setupAnimations();
+    _setupAnimation();
     _restoreCooldown();
-
-//...............
-    // checkVerification();
-    // timer = Timer.periodic(
-    //   const Duration(seconds: 3),
-    //   (_) => checkVerification(),
-    // );
-//..........
-
   }
 
   // ------------------------------------------------------------
-  // ANIMATIONS
+  // ANIMATION
   // ------------------------------------------------------------
-  void _setupAnimations() {
-    _entranceController = AnimationController(
+  void _setupAnimation() {
+    _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 650),
+      duration: const Duration(milliseconds: 600),
     );
 
     _scaleAnim = CurvedAnimation(
-      parent: _entranceController,
+      parent: _controller,
       curve: Curves.elasticOut,
     );
 
     _fadeAnim = CurvedAnimation(
-      parent: _entranceController,
+      parent: _controller,
       curve: Curves.easeIn,
     );
 
-    _entranceController.forward();
+    _controller.forward();
   }
 
   // ------------------------------------------------------------
-  // RESTORE COOLDOWN AFTER REFRESH / SLEEP
+  // RESTORE COOLDOWN (REFRESH / SLEEP SAFE)
   // ------------------------------------------------------------
   Future<void> _restoreCooldown() async {
     final prefs = await SessionManager.getPrefs();
@@ -85,132 +67,89 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
     if (lastSent == 0) return;
 
     final now = DateTime.now().millisecondsSinceEpoch;
-    const cooldown = 30000;
+    const cooldownMs = 30 * 1000;
 
     final diff = now - lastSent;
-    if (diff < cooldown) {
-      final remaining = ((cooldown - diff) / 1000).ceil();
-      setState(() {
-        canResend = false;
-        cooldownRemaining = remaining;
-      });
+    if (diff < cooldownMs) {
+      final remaining = ((cooldownMs - diff) / 1000).ceil();
       startCooldown(remaining);
     }
   }
 
   // ------------------------------------------------------------
-  // APP RESUME
+  // RESOLVE EMAIL (DEEPLINK SAFE)
   // ------------------------------------------------------------
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      checkVerification();
+  Future<String?> _resolveEmail() async {
+    final user = supabase.auth.currentUser;
+    if (user?.email != null) return user!.email;
+
+    final local = await SessionManager.getLastUser();
+    if (local != null && local['email'] != null) {
+      return local['email'];
     }
-  }
 
-  // ------------------------------------------------------------
-  // DISPOSE
-  // ------------------------------------------------------------
-  @override
-  void dispose() {
-    timer?.cancel();
-    cooldownTimer?.cancel();
-    _entranceController.dispose();
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  // ------------------------------------------------------------
-  // CHECK EMAIL VERIFIED
-  // ------------------------------------------------------------
- Future<void> checkVerification() async {
-  final user = supabase.auth.currentUser;
-
-  // session naththam crash wenne na
-  if (user == null) {
-    debugPrint('No active session');
-    return;
-  }
-
-  final verified = user.emailConfirmedAt != null;
-
-  if (verified && !isEmailVerified && mounted) {
-    timer?.cancel();
-    setState(() => isEmailVerified = true);
-
-    await Future.delayed(const Duration(milliseconds: 400));
-    if (!mounted) return;
-
-    redirectByRole();
-  }
-}
-
-
-  // ------------------------------------------------------------
-  // ROLE BASED REDIRECT
-  // ------------------------------------------------------------
-  Future<void> redirectByRole() async {
-    String? role = await SessionManager.getUserRole();
-    role ??= "customer";
-
-    if (!mounted) return;
-
-    if (role == "business") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const OwnerDashboard()),
-      );
-    } else if (role == "employee") {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const EmployeeDashboard()),
-      );
-    } else {
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const CustomerHome()),
-      );
-    }
+    return null;
   }
 
   // ------------------------------------------------------------
   // COOLDOWN TIMER
   // ------------------------------------------------------------
   void startCooldown(int seconds) {
-    cooldownRemaining = seconds;
-    cooldownTimer?.cancel();
+    resendTimer?.cancel();
 
-    cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
-      if (!mounted) return;
+    setState(() {
+      canResend = false;
+      remainingSeconds = seconds;
+    });
 
-      if (cooldownRemaining <= 1) {
-        t.cancel();
+    resendTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return timer.cancel();
+
+      if (remainingSeconds <= 1) {
+        timer.cancel();
         setState(() {
           canResend = true;
-          cooldownRemaining = 0;
+          remainingSeconds = 0;
         });
       } else {
-        setState(() => cooldownRemaining--);
+        setState(() => remainingSeconds--);
       }
     });
   }
 
   // ------------------------------------------------------------
-  // RESEND EMAIL (USER ACTION ONLY)
+  // RESEND EMAIL
   // ------------------------------------------------------------
   Future<void> resendVerification() async {
-    final user = supabase.auth.currentUser;
-    if (user == null || !mounted) return;
+    if (!canResend) return;
+
+    final email = await _resolveEmail();
+    if (email == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Session expired. Please login again."),
+        ),
+      );
+      return;
+    }
 
     final prefs = await SessionManager.getPrefs();
     final now = DateTime.now().millisecondsSinceEpoch;
 
-    setState(() => canResend = false);
+    try {
+      await supabase.auth.resend(
+        type: OtpType.signup,
+        email: email,
+      );
 
-    await supabase.auth.resend(type: OtpType.signup, email: user.email!);
-
-    await prefs.setInt('lastVerificationSent', now);
-    startCooldown(30);
+      await prefs.setInt('lastVerificationSent', now);
+      startCooldown(30);
+    } catch (e) {
+      setState(() => canResend = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Resend failed: $e")),
+      );
+    }
   }
 
   // ------------------------------------------------------------
@@ -219,7 +158,6 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   Future<void> logout() async {
     await supabase.auth.signOut();
     if (!mounted) return;
-
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => const SplashScreen()),
@@ -234,9 +172,9 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
   }
 
   // ------------------------------------------------------------
-  // UI (UNCHANGED)
+  // UI
   // ------------------------------------------------------------
- @override
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -259,8 +197,8 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                   opacity: _fadeAnim,
                   child: Container(
                     width: _cardWidth(context),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 24, vertical: 32),
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(28),
@@ -285,8 +223,7 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                         const SizedBox(height: 12),
                         const Text(
                           "We’ve sent a verification link to your email.\n"
-                          "Open it to continue.\n\n"
-                          "This screen updates automatically.",
+                          "Open it to continue.",
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 26),
@@ -305,12 +242,12 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                         ),
                         const SizedBox(height: 30),
 
-                        /// RESEND BUTTON (COOLDOWN VISIBLE)
                         PrimaryOutlineButton(
                           text: canResend
                               ? "Resend Verification Email"
-                              : "Wait ${cooldownRemaining}s",
-                          onPressed: resendVerification,
+                              : "Wait $remainingSeconds s",
+                          onPressed:
+                              canResend ? resendVerification : null,
                           color: const Color(0xFF1E88E5),
                           icon: Icons.refresh,
                           disabled: !canResend,
@@ -334,23 +271,6 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
                           color: Colors.redAccent,
                           icon: Icons.logout,
                         ),
-
-                        if (isEmailVerified) ...[
-                          const SizedBox(height: 26),
-                          const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check_circle, color: Colors.teal),
-                              SizedBox(width: 8),
-                              Text(
-                                "Verified! Redirecting…",
-                                style: TextStyle(
-                                    color: Colors.teal,
-                                    fontWeight: FontWeight.w600),
-                              ),
-                            ],
-                          ),
-                        ],
                       ],
                     ),
                   ),
@@ -362,6 +282,13 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
       ),
     );
   }
+
+  @override
+  void dispose() {
+    resendTimer?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
 }
 
 // ------------------------------------------------------------
@@ -369,7 +296,7 @@ class _EmailVerifyCheckerState extends State<EmailVerifyChecker>
 // ------------------------------------------------------------
 class PrimaryOutlineButton extends StatelessWidget {
   final String text;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Color color;
   final IconData icon;
   final bool disabled;
@@ -393,7 +320,10 @@ class PrimaryOutlineButton extends StatelessWidget {
           icon: Icon(icon, color: color),
           label: Text(
             text,
-            style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w600,
+            ),
           ),
           onPressed: onPressed,
           style: OutlinedButton.styleFrom(
