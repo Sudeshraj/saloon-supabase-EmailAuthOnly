@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/screens/authantication/functions/delete_user.dart';
+import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_application_1/main.dart';
 import 'package:flutter_application_1/screens/authantication/command/registration_flow.dart';
@@ -63,14 +64,20 @@ class SaveUser {
       email: email,
       password: password,
       data: {'name': displayName},
-      // emailRedirectTo: 'https://myapp.com/verify-email' // live
+       // emailRedirectTo: 'https://myapp.com/verify-email' // live
       emailRedirectTo: kIsWeb
           ? 'https://myapp.com/verify-email'
           : 'myapp://verify-email',
     );
 
-    if (res.user == null) {
-      throw Exception("User registration failed.");
+    final user = res.user;
+    if (user == null) {
+      throw Exception("Registration failed.");
+    }
+
+    // 🔑 Existing user detection (Supabase official behavior)
+    if (user.identities?.isEmpty ?? true) {
+      throw const AuthException('ACCOUNT_EXISTS');
     }
 
     return res;
@@ -85,10 +92,10 @@ class SaveUser {
     required String displayName,
     Map<String, dynamic>? extraData,
   }) async {
-    final session = supabase.auth.currentSession;
-    if (session == null) {
-      throw Exception("No active Supabase session found — please sign in first.");
-    }
+    // final session = supabase.auth.currentSession;
+    // if (session == null) {
+    //   throw const AuthException('NO_SESSION');
+    // }
 
     await safeWriteProfile(
       userId: userId,
@@ -112,27 +119,24 @@ class SaveUser {
     LoadingOverlay.show(context, message: "Creating your $role account...");
 
     try {
-      // Step 1 — Register Auth user
+      // 1️⃣ Register auth user
       final res = await registerAccount(
         email: email,
         password: password,
         displayName: displayName,
       );
 
-      final user = res.user;
-      if (user == null) {
-        throw Exception("User creation failed");
-      }
+      final user = res.user!;
 
-      // Step 2 — Create profile (RLS safe)
-      await safeWriteProfile(
+      // 2️⃣ Create profile ONLY for new users
+      await createProfile(
         userId: user.id,
         roleName: role,
         displayName: displayName,
         extraData: extraData,
       );
 
-      // Step 3 — Save locally
+      // 3️⃣ Save locally
       await SessionManager.saveProfile(
         email: email,
         name: displayName,
@@ -143,24 +147,36 @@ class SaveUser {
 
       LoadingOverlay.hide();
 
-      // Step 4 — Go to verification screen
       if (!context.mounted) return;
-      navigatorKey.currentState?.pushReplacement(
-        MaterialPageRoute(builder: (_) => EmailVerifyChecker()),
-      );
-    } catch (e) {
+
+      // 4️⃣ Navigate (GoRouter-safe)
+      context.go('/verify-email');
+    }
+    // 🔁 Existing account → login flow
+    on AuthException catch (e) {
       LoadingOverlay.hide();
       if (!context.mounted) return;
 
-      final err = e.toString();
-      if (err.contains("User already registered") || err.contains("duplicate")) {
+      if (e.message == 'ACCOUNT_EXISTS') {
         return handleEmailAlreadyInUse(context, email, password);
       }
 
       await showCustomAlert(
         context,
         title: "Registration Failed",
-        message: err,
+        message: e.message,
+        isError: true,
+      );
+    }
+    // ❌ Unexpected errors
+    catch (e) {
+      LoadingOverlay.hide();
+      if (!context.mounted) return;
+
+      await showCustomAlert(
+        context,
+        title: "Registration Failed",
+        message: e.toString(),
         isError: true,
       );
     }
